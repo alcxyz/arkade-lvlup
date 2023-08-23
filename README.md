@@ -1,12 +1,13 @@
-# arkade lvlup
+# arkade-lvlup
 
-arkade lvlup is a Go-based CLI utility designed to effortlessly sync and manage tools in your arkade setup. It ensures your arkade toolkit is always up-to-date with your configuration, promoting consistency and reducing manual work.
+`arkade-lvlup` is a CLI tool designed to help users synchronize, install, and manage their tools using `arkade`.
 
 ## Features
 
-- **Automatic Synchronization**: Ensures your `.arkade/bin` tools are in sync with your configuration in `lvlup.yaml`.
-- **Easy Management**: Intuitive commands to add, remove, or force sync your tools.
-- **User Feedback**: Provides informative feedback to ensure the user is always in the loop.
+1. Synchronize tools based on a configuration file.
+2. Install or reinstall specific tools.
+3. Remove tools.
+4. Update shell configuration to include `arkade-lvlup` in the PATH.
 
 ## Installation
 
@@ -14,24 +15,57 @@ _TODO: Include installation steps._
 
 ## Usage
 
-### Sync tools
+Here are the available flags and their explanations:
 
-    arkade-lvlup -sync
+- `-f`: Force sync. This is only valid with `-sync` or `--sync`.
+- `-p`: Display `arkade` outputs.
+- `-sync` or `-s`: Synchronize tools based on the configuration.
+- `-get` or `-g [tool1,tool2,...]`: Install or reinstall specified tools.
+- `-remove` or `-r [tool1,tool2,...]`: Remove specified tools.
+- `-config-shell` or `-c`: Update the shell configuration to include `arkade-lvlup` in the PATH.
 
-### Forcefully sync tools
+### Examples:
 
-    arkade-lvlup -sync -f
+1. **Synchronizing tools based on a configuration**:
 
-### Install or reinstall specified tools
+    arkade-lvlup -s
 
-    arkade-lvlup -get "tool1 tool2 tool3"
 
-### Remove specified tools
+2. **Forcefully synchronizing tools**:
 
-    arkade-lvlup -remove "tool1 tool2"
+    arkade-lvlup -s -f
+
+
+3. **Installing a tool**:
+
+    arkade-lvlup -g [tool_name1,tool_name2,tool_name3,...]
+
+
+4. **Removing a tool**:
+
+    arkade-lvlup -r [tool_name1,tool_name2,tool_name3,...]
+
+
+5. **Updating shell configuration**:
+
+    arkade-lvlup -c
+
+
+## Configuration
+
+The configuration is stored in a YAML file and specifies which tools should be installed. Here is an example structure:
+
+```yaml
+tools:
+- tool1
+- tool2
+- tool3
+```
+
+When you synchronize using arkade-lvlup, it will ensure that the tools listed in the configuration are installed and any tools not in the list are removed.
 
 ### Contributing
 We welcome contributions! Please open an issue or submit a pull request if you would like to help improve arkade lvlup.
 
 ### License
-MIT
+This project is licensed under the MIT License.
