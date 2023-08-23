@@ -69,6 +69,10 @@ func forceSyncTools(configFilePath string) {
 		return
 	}
 
+	if removedTools == 0 && !*forceFlag {
+		fmt.Println("Everything is in sync!")
+	}
+
 	setupWithArkadeIdempotent(configFilePath, config.Tools)
 	uninstallExtraneousTools(configFilePath)
 }
@@ -100,6 +104,10 @@ func setupWithArkadeIdempotent(configFilePath string, toolsToProcess []string) {
 
 		fmt.Printf("Installing tool: %s...\n", tool)
 		cmd := exec.Command("arkade", "get", tool)
+		if *passthroughFlag {
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+		}
 		err = cmd.Run()
 		if err != nil {
 			fmt.Printf("Error: Failed to install %s via arkade. Moving on to the next tool.\n", tool)
@@ -296,6 +304,7 @@ func main() {
 	getFlag := flag.String("get", "", "Install or reinstall specified tools.")
 	removeFlag := flag.String("remove", "", "Remove specified tools.")
 	configShellFlag := flag.Bool("config-shell", false, "Update the shell configuration to include arkade-lvlup in the PATH.")
+	passthroughFlag := flag.Bool("passthrough", false, "Show arkade outputs.")
 
 	flag.Parse()
 
