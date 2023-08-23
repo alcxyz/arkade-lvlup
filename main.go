@@ -13,9 +13,19 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+var noFlag bool = true // Initialize it to true.
+
 var (
-	forceFlag       = flag.Bool("f", false, "Force sync (only valid with -sync).")
-	passthroughFlag = flag.Bool("passthrough", false, "Show arkade outputs.")
+	forceFlag            = flag.Bool("f", false, "Force sync (only valid with -sync or --sync).")
+	passthroughFlag      = flag.Bool("p", false, "Show arkade outputs.")
+	syncFlag             = flag.Bool("sync", false, "Sync tools based on configuration.")
+	syncFlagShort        = flag.Bool("s", false, "Alias for --sync.")
+	getFlag              = flag.String("get", "", "Install or reinstall specified tools.")
+	getFlagShort         = flag.String("g", "", "Alias for --get.")
+	removeFlag           = flag.String("remove", "", "Remove specified tools.")
+	removeFlagShort      = flag.String("r", "", "Alias for --remove.")
+	configShellFlag      = flag.Bool("config-shell", false, "Update the shell configuration to include arkade-lvlup in the PATH.")
+	configShellFlagShort = flag.Bool("c", false, "Alias for --config-shell.")
 )
 
 // Config is the structure of our yaml configuration file
@@ -62,6 +72,67 @@ func writeConfig(filePath string, config Config) error {
 	}
 
 	return ioutil.WriteFile(filePath, data, 0644)
+}
+
+// getSyncState provides an overview of the current sync state.
+func getSyncState(configFilePath string) {
+	// 1. Identifying which tools are currently installed
+	usr, err := user.Current()
+	if err != nil {
+		fmt.Printf("Error fetching user details: %s\n", err)
+		return
+	}
+	binDir := filepath.Join(usr.HomeDir, ".arkade", "bin")
+	files, err := ioutil.ReadDir(binDir)
+	if err != nil {
+		fmt.Printf("Error reading directory: %s\n", err)
+		return
+	}
+
+	installedTools := make([]string, 0)
+	for _, file := range files {
+		if !file.IsDir() {
+			installedTools = append(installedTools, file.Name())
+		}
+	}
+
+	// 2. Identifying which tools are listed in the config but not installed
+	config, err := readConfig(configFilePath)
+	if err != nil {
+		fmt.Printf("Error reading config: %s\n", err)
+		return
+	}
+
+	inConfigNotInstalled := make([]string, 0)
+	for _, tool := range config.Tools {
+		if !containsElement(installedTools, tool) {
+			inConfigNotInstalled = append(inConfigNotInstalled, tool)
+		}
+	}
+
+	// 3. Identifying which tools are installed but not in the config
+	installedNotInConfig := make([]string, 0)
+	for _, tool := range installedTools {
+		if !containsElement(config.Tools, tool) {
+			installedNotInConfig = append(installedNotInConfig, tool)
+		}
+	}
+
+	// Print the results
+	fmt.Println("Tools currently installed:")
+	for _, tool := range installedTools {
+		fmt.Println("-", tool)
+	}
+
+	fmt.Println("\nTools in config but not installed:")
+	for _, tool := range inConfigNotInstalled {
+		fmt.Println("-", tool)
+	}
+
+	fmt.Println("\nTools installed but not in config:")
+	for _, tool := range installedNotInConfig {
+		fmt.Println("-", tool)
+	}
 }
 
 // forceSyncTools forcefully syncs tools with the configuration.
@@ -320,14 +391,28 @@ fi`, relativePath, relativePath)
 
 func main() {
 	// Parsing command-line flags
-	syncFlag := flag.Bool("sync", false, "Sync tools based on configuration.")
-	// forceFlag := flag.Bool("f", false, "Force sync (only valid with -sync).")
-	getFlag := flag.String("get", "", "Install or reinstall specified tools.")
-	removeFlag := flag.String("remove", "", "Remove specified tools.")
-	configShellFlag := flag.Bool("config-shell", false, "Update the shell configuration to include arkade-lvlup in the PATH.")
-	// passthroughFlag := flag.Bool("passthrough", false, "Show arkade outputs.")
-
 	flag.Parse()
+
+	// Consolidate flags for easy processing
+	consolidateSyncFlag := *syncFlag || *syncFlagShort
+	consolidateGetFlag := *getFlag
+
+	if *getFlagShort != "" {
+		if consolidateGetFlag != "" {
+			fmt.Println("Error: Please use either -get or -g, not both.")
+			return
+		}
+		consolidateGetFlag = *getFlagShort
+	}
+	consolidateRemoveFlag := *removeFlag
+	if *removeFlagShort != "" {
+		consolidateRemoveFlag = *removeFlagShort
+	}
+
+	consolidateConfigShellFlag := *configShellFlag || *configShellFlagShort
+
+	// Determine if any flag is provided
+	noFlag = !(consolidateSyncFlag || consolidateGetFlag != "" || consolidateRemoveFlag != "" || consolidateConfigShellFlag || *forceFlag)
 
 	usr, err := user.Current()
 	if err != nil {
@@ -337,8 +422,10 @@ func main() {
 	configFilePath := filepath.Join(usr.HomeDir, ".arkade", "lvlup.yaml")
 
 	// Validate flags
-	if *forceFlag && !*syncFlag {
-		fmt.Println("Error: -f or --force can only be used with -sync")
+
+	// Ensure that -f or --force is used only with -sync or -s
+	if *forceFlag && !consolidateSyncFlag {
+		fmt.Println("Error: -f or --force can only be used with -sync or -s.")
 		return
 	}
 
@@ -354,7 +441,7 @@ func main() {
 	}
 
 	// Handle flags
-	if *syncFlag {
+	if consolidateSyncFlag {
 		if *forceFlag {
 			forceSyncTools(configFilePath)
 		} else {
@@ -367,8 +454,12 @@ func main() {
 		}
 	}
 
-	if *getFlag != "" {
-		tools := populateArray(*getFlag)
+	if noFlag {
+		getSyncState(configFilePath)
+	}
+
+	if consolidateGetFlag != "" {
+		tools := populateArray(consolidateGetFlag)
 
 		// Update the configuration with the tools provided in getFlag
 		config, err := readConfig(configFilePath)
@@ -409,12 +500,12 @@ func main() {
 		}
 	}
 
-	if *removeFlag != "" {
-		tools := populateArray(*removeFlag)
-		removeWithArkade(configFilePath, tools)
+	if consolidateRemoveFlag != "" {
+		toolsToRemove := populateArray(consolidateRemoveFlag)
+		removeWithArkade(configFilePath, toolsToRemove)
 	}
 
-	if *configShellFlag {
+	if consolidateConfigShellFlag {
 		updateShellConfig()
 	}
 
