@@ -13,6 +13,11 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+var (
+	forceFlag       = flag.Bool("f", false, "Force sync (only valid with -sync).")
+	passthroughFlag = flag.Bool("passthrough", false, "Show arkade outputs.")
+)
+
 // Config is the structure of our yaml configuration file
 type Config struct {
 	Tools []string `yaml:"tools"`
@@ -28,9 +33,9 @@ func containsElement(slice []string, elem string) bool {
 	return false
 }
 
-// populateArray splits a space-separated string into a slice of strings.
+// populateArray splits a comma-separated string into a slice of strings.
 func populateArray(str string) []string {
-	return strings.Fields(str)
+	return strings.Split(strings.TrimSpace(str), ",")
 }
 
 // readConfig reads the YAML configuration file and unmarshals it into a Config struct.
@@ -69,17 +74,24 @@ func forceSyncTools(configFilePath string) {
 		return
 	}
 
+	// removedTools should be calculated and returned by uninstallExtraneousTools
+	removedTools := uninstallExtraneousTools(configFilePath)
 	if removedTools == 0 && !*forceFlag {
 		fmt.Println("Everything is in sync!")
 	}
 
 	setupWithArkadeIdempotent(configFilePath, config.Tools)
-	uninstallExtraneousTools(configFilePath)
 }
 
 // setupWithArkadeIdempotent checks if the tool exists in the config,
 // if not, adds it and installs/reinstalls it using arkade.
 func setupWithArkadeIdempotent(configFilePath string, toolsToProcess []string) {
+	usr, err := user.Current()
+	if err != nil {
+		fmt.Printf("Error fetching user details: %s\n", err)
+		return
+	}
+	binDir := filepath.Join(usr.HomeDir, ".arkade", "bin")
 	for _, tool := range toolsToProcess {
 		tool = strings.TrimSpace(tool)
 		if tool == "" {
@@ -90,6 +102,12 @@ func setupWithArkadeIdempotent(configFilePath string, toolsToProcess []string) {
 		if err != nil {
 			fmt.Printf("Error reading config: %s\n", err)
 			return
+		}
+
+		toolPath := filepath.Join(binDir, tool)
+		if _, err := os.Stat(toolPath); err == nil && !*forceFlag {
+			fmt.Printf("Tool: %s already installed. Skipping...\n", tool)
+			continue
 		}
 
 		if !containsElement(config.Tools, tool) {
@@ -115,6 +133,7 @@ func setupWithArkadeIdempotent(configFilePath string, toolsToProcess []string) {
 			fmt.Printf("Successfully installed %s.\n", tool)
 		}
 	}
+	fmt.Println("Everything is in sync!")
 }
 
 // removeWithArkade removes tools from the config and uninstalls them using arkade.
@@ -147,23 +166,23 @@ func removeWithArkade(configFilePath string, toolsToRemove []string) {
 }
 
 // uninstallExtraneousTools removes tools that are present in the arkade directory but not in the config.
-func uninstallExtraneousTools(configFilePath string) {
+func uninstallExtraneousTools(configFilePath string) int {
 	config, err := readConfig(configFilePath)
 	if err != nil {
 		fmt.Printf("Error reading config: %s\n", err)
-		return
+		return -1
 	}
 
 	usr, err := user.Current()
 	if err != nil {
 		fmt.Printf("Error fetching user details: %s\n", err)
-		return
+		return -1
 	}
 	binDir := filepath.Join(usr.HomeDir, ".arkade", "bin")
 	files, err := ioutil.ReadDir(binDir)
 	if err != nil {
 		fmt.Printf("Error reading directory: %s\n", err)
-		return
+		return -1
 	}
 
 	removedTools := 0
@@ -185,6 +204,8 @@ func uninstallExtraneousTools(configFilePath string) {
 	if removedTools == 0 {
 		fmt.Println("No extraneous tools found. Everything is in sync!")
 	}
+
+	return removedTools
 }
 
 // initializeConfigIfNotExists checks if the config exists. If not, it initializes a new config with tools found in the arkade directory.
@@ -300,11 +321,11 @@ fi`, relativePath, relativePath)
 func main() {
 	// Parsing command-line flags
 	syncFlag := flag.Bool("sync", false, "Sync tools based on configuration.")
-	forceFlag := flag.Bool("f", false, "Force sync (only valid with -sync).")
+	// forceFlag := flag.Bool("f", false, "Force sync (only valid with -sync).")
 	getFlag := flag.String("get", "", "Install or reinstall specified tools.")
 	removeFlag := flag.String("remove", "", "Remove specified tools.")
 	configShellFlag := flag.Bool("config-shell", false, "Update the shell configuration to include arkade-lvlup in the PATH.")
-	passthroughFlag := flag.Bool("passthrough", false, "Show arkade outputs.")
+	// passthroughFlag := flag.Bool("passthrough", false, "Show arkade outputs.")
 
 	flag.Parse()
 
@@ -337,13 +358,55 @@ func main() {
 		if *forceFlag {
 			forceSyncTools(configFilePath)
 		} else {
-			setupWithArkadeIdempotent(configFilePath, populateArray(*getFlag))
+			config, err := readConfig(configFilePath)
+			if err != nil {
+				fmt.Printf("Error reading config: %s\n", err)
+				return
+			}
+			setupWithArkadeIdempotent(configFilePath, config.Tools)
 		}
 	}
 
 	if *getFlag != "" {
 		tools := populateArray(*getFlag)
-		setupWithArkadeIdempotent(configFilePath, tools)
+
+		// Update the configuration with the tools provided in getFlag
+		config, err := readConfig(configFilePath)
+		if err != nil {
+			fmt.Printf("Error reading config: %s\n", err)
+			return
+		}
+		for _, tool := range tools {
+			if !containsElement(config.Tools, tool) {
+				config.Tools = append(config.Tools, tool)
+				err := writeConfig(configFilePath, config)
+				if err != nil {
+					fmt.Printf("Error writing to config: %s\n", err)
+					return
+				}
+				fmt.Printf("Added %s to the configuration file.\n", tool)
+			}
+		}
+
+		if *forceFlag {
+			setupWithArkadeIdempotent(configFilePath, tools)
+		} else {
+			// Only install tools that are not present in arkade/bin
+			usr, err := user.Current()
+			if err != nil {
+				fmt.Printf("Error fetching user details: %s\n", err)
+				return
+			}
+			binDir := filepath.Join(usr.HomeDir, ".arkade", "bin")
+
+			var newTools []string
+			for _, tool := range tools {
+				if _, err := os.Stat(filepath.Join(binDir, tool)); os.IsNotExist(err) {
+					newTools = append(newTools, tool)
+				}
+			}
+			setupWithArkadeIdempotent(configFilePath, newTools)
+		}
 	}
 
 	if *removeFlag != "" {
