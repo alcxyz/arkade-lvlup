@@ -12,11 +12,10 @@ import (
 
 // SetupWithArkadeIdempotent checks if the tool exists in the config,
 // if not, adds it and installs/reinstalls it using arkade.
-func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, forceFlag bool, passthroughFlag bool) {
+func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, forceFlag bool, passthroughFlag bool) error {
 	binDir, err := GetBinDir()
 	if err != nil {
-		fmt.Printf("Error fetching bin directory: %s\n", err)
-		return
+		return fmt.Errorf("error fetching bin directory: %w", err)
 	}
 
 	for _, tool := range toolsToProcess {
@@ -28,7 +27,7 @@ func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, f
 		cfg, err := config.ReadConfig(configFilePath)
 		if err != nil {
 			fmt.Printf("Error reading config: %s\n", err)
-			return
+			return err
 		}
 
 		toolPath := filepath.Join(binDir, tool)
@@ -37,12 +36,12 @@ func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, f
 			continue
 		}
 
-		if !ContainsElement(config.Tools, tool) {
-			config.Tools = append(config.Tools, tool)
-			err := config.WriteConfig(configFilePath, config)
+		if !ContainsElement(cfg.Tools, tool) {
+			cfg.Tools = append(cfg.Tools, tool)
+			err := config.WriteConfig(configFilePath, cfg)
 			if err != nil {
 				fmt.Printf("Error writing to config: %s\n", err)
-				return
+				return err
 			}
 			fmt.Printf("Added %s to the configuration file.\n", tool)
 		}
@@ -61,10 +60,11 @@ func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, f
 		}
 	}
 	fmt.Println("Everything is in sync!")
+	return nil
 }
 
 // ForceSyncTools forcefully syncs tools with the configuration.
-func ForceSyncTools(configFilePath string, forceFlag bool, passthroughFlag bool) {
+func ForceSyncTools(configFilePath string, forceFlag bool, passthroughFlag bool) error {
 	fmt.Println("Synchronizing tools...")
 
 	cfg, err := config.ReadConfig(configFilePath)
@@ -79,11 +79,12 @@ func ForceSyncTools(configFilePath string, forceFlag bool, passthroughFlag bool)
 		fmt.Println("Everything is in sync!")
 	}
 
-	SetupWithArkadeIdempotent(configFilePath, config.Tools, forceFlag, passthroughFlag)
+	SetupWithArkadeIdempotent(configFilePath, cfg.Tools, forceFlag, passthroughFlag)
+	return nil
 }
 
 // removeWithArkade removes tools from the config and uninstalls them using arkade.
-func RemoveWithArkade(configFilePath string, toolsToRemove []string) {
+func RemoveWithArkade(configFilePath string, toolsToRemove []string) error {
 	for _, tool := range toolsToRemove {
 		cfg, err := config.ReadConfig(configFilePath)
 		if err != nil {
@@ -92,23 +93,24 @@ func RemoveWithArkade(configFilePath string, toolsToRemove []string) {
 		}
 
 		// Find and remove the tool from the Tools slice
-		for i, t := range config.Tools {
+		for i, t := range cfg.Tools {
 			if t == tool {
 				config.Tools = append(config.Tools[:i], config.Tools[i+1:]...)
 				break
 			}
 		}
 
-		err = config.WriteConfig(configFilePath, config)
+		err = config.WriteConfig(configFilePath, cfg)
 		if err != nil {
 			fmt.Printf("Error writing to config: %s\n", err)
-			return
+			return err
 		}
 
 		fmt.Printf("Marked %s for removal.\n", tool)
 	}
 
 	uninstallExtraneousTools(configFilePath)
+	return nil
 }
 
 // uninstallExtraneousTools removes tools that are present in the arkade directory but not in the config.
@@ -154,22 +156,20 @@ func uninstallExtraneousTools(configFilePath string) int {
 	return removedTools
 }
 
-// getSyncState provides an overview of the current sync state.
+// GetSyncState provides an overview of the current sync state.
 func GetSyncState(configFilePath string) {
-	// 1. Identifying which tools are currently installed
-	_, err := GetBinDir()
+	binDir, err := GetBinDir()
 	if err != nil {
 		fmt.Printf("Error fetching bin directory: %s\n", err)
 		return
 	}
 
-	installedTools, err := ListToolsInBinDir()
+	installedTools, err := ListToolsInBinDir(binDir)
 	if err != nil {
 		fmt.Printf("Error listing tools: %s\n", err)
 		return
 	}
 
-	// 2. Identifying which tools are listed in the config but not installed
 	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		fmt.Printf("Error reading config: %s\n", err)
@@ -177,33 +177,30 @@ func GetSyncState(configFilePath string) {
 	}
 
 	inConfigNotInstalled := make([]string, 0)
-	for _, tool := range config.Tools {
+	for _, tool := range cfg.Tools {
 		if !ContainsElement(installedTools, tool) {
 			inConfigNotInstalled = append(inConfigNotInstalled, tool)
 		}
 	}
 
-	// 3. Identifying which tools are installed but not in the config
 	installedNotInConfig := make([]string, 0)
 	for _, tool := range installedTools {
-		if !ContainsElement(config.Tools, tool) {
+		if !ContainsElement(cfg.Tools, tool) {
 			installedNotInConfig = append(installedNotInConfig, tool)
 		}
 	}
 
-	// Print the results
-	fmt.Println("Tools currently installed:")
-	for _, tool := range installedTools {
-		fmt.Println("-", tool)
+	fmt.Println("----- Sync State -----")
+	if len(inConfigNotInstalled) > 0 {
+		fmt.Printf("Tools in config but not installed: %s\n", strings.Join(inConfigNotInstalled, ", "))
+	} else {
+		fmt.Println("All tools in the config are installed!")
 	}
 
-	fmt.Println("\nTools in config but not installed:")
-	for _, tool := range inConfigNotInstalled {
-		fmt.Println("-", tool)
+	if len(installedNotInConfig) > 0 {
+		fmt.Printf("Tools installed but not in config: %s\n", strings.Join(installedNotInConfig, ", "))
+	} else {
+		fmt.Println("All installed tools are in the config!")
 	}
-
-	fmt.Println("\nTools installed but not in config:")
-	for _, tool := range installedNotInConfig {
-		fmt.Println("-", tool)
-	}
+	fmt.Println("----------------------")
 }

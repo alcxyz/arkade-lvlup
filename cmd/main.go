@@ -2,8 +2,10 @@ package main
 
 import (
 	"arkade-lvlup/tools"
+	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -33,8 +35,7 @@ func main() {
 
 	binDir, err := tools.GetBinDir()
 	if err != nil {
-		fmt.Printf("Error getting bin directory: %s\n", err)
-		return
+		log.Fatalf("Error getting bin directory: %s\n", err)
 	}
 
 	configFilePath := filepath.Join(binDir, "lvlup.yaml")
@@ -43,85 +44,81 @@ func main() {
 	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
 		_, err := tools.InitializeConfigIfNotExists(configFilePath)
 		if err != nil {
-			fmt.Printf("Error initializing configuration: %s\n", err)
-			return
+			log.Fatalf("Error initializing configuration: %s\n", err)
 		}
 	}
-	handleFlags(configFilePath)
+
+	if err := handleFlags(configFilePath); err != nil {
+		log.Fatalf("Error handling flags: %s", err)
+	}
 }
 
-func handleFlags(configFilePath string) {
+func handleFlags(configFilePath string) error {
 	if *forceFlag && !*syncFlag {
-		fmt.Println("Error: -f or --force can only be used with --sync or -s.")
-		return
+		return errors.New("-f or --force can only be used with --sync or -s.")
 	}
 
-	if *syncFlag {
-		handleSync(configFilePath, *forceFlag, *passthroughFlag)
-	} else if *getFlag != "" {
-		handleGet(configFilePath, *getFlag, *forceFlag)
-	} else if *removeFlag != "" {
-		handleRemove(configFilePath, *removeFlag)
-	} else if *configShellFlag {
-		handleShellConfig()
-	} else {
-		handleDefaultState(configFilePath)
+	switch {
+	case *syncFlag:
+		return handleSync(configFilePath, *forceFlag, *passthroughFlag)
+	case *getFlag != "":
+		return handleGet(configFilePath, *getFlag, *forceFlag)
+	case *removeFlag != "":
+		return handleRemove(configFilePath, *removeFlag)
+	case *configShellFlag:
+		return handleShellConfig()
+	default:
+		return handleDefaultState(configFilePath)
 	}
 }
 
-// Additional refactored functions such as handleSync, handleGet, handleRemove, etc.
-
-func handleSync(configFilePath string, force bool, passthrough bool) {
+func handleSync(configFilePath string, force bool, passthrough bool) error {
 	if force {
-		tools.ForceSyncTools(configFilePath, force)
-	} else {
-		config, err := readConfig(configFilePath)
-		if err != nil {
-			fmt.Printf("Error reading config: %s\n", err)
-			return
-		}
-		tools.SetupWithArkadeIdempotent(configFilePath, config.Tools, force, passthrough)
+		return tools.ForceSyncTools(configFilePath, force)
 	}
+
+	config, err := readConfig(configFilePath)
+	if err != nil {
+		return fmt.Errorf("error reading config: %w", err)
+	}
+
+	return tools.SetupWithArkadeIdempotent(configFilePath, config.Tools, force, passthrough)
 }
 
-func handleGet(configFilePath string, getFlagValue string, force bool) {
+func handleGet(configFilePath string, getFlagValue string, force bool) error {
 	tools := tools.PopulateArray(getFlagValue)
 	config, err := readConfig(configFilePath)
 	if err != nil {
-		fmt.Printf("Error reading config: %s\n", err)
-		return
+		return fmt.Errorf("error reading config: %w", err)
 	}
 	for _, tool := range tools {
 		if !tools.ContainsElement(config.Tools, tool) {
 			config.Tools = append(config.Tools, tool)
 			err := writeConfig(configFilePath, config)
 			if err != nil {
-				fmt.Printf("Error writing to config: %s\n", err)
-				return
+				return fmt.Errorf("error writing to config: %w", err)
 			}
 			fmt.Printf("Added %s to the configuration file.\n", tool)
 		}
 	}
 
-	if force {
-		tools.SetupWithArkadeIdempotent(configFilePath, tools, force, passthrough)
-	} else {
-		binDir, _ := tools.GetBinDir()
-		var newTools []string
-		for _, tool := range tools {
-			if _, err := os.Stat(filepath.Join(binDir, tool)); os.IsNotExist(err) {
-				newTools = append(newTools, tool)
-			}
-		}
-		tools.SetupWithArkadeIdempotent(configFilePath, newTools, force, passthrough)
+	err = tools.SetupWithArkadeIdempotent(configFilePath, tools, force, passthrough)
+	if err != nil {
+		return err
 	}
+	return nil
 }
 
-func handleRemove(configFilePath string, removeFlagValue string) {
+func handleRemove(configFilePath string, removeFlagValue string) error {
 	toolsToRemove := tools.PopulateArray(removeFlagValue)
-	removeWithArkade(configFilePath, toolsToRemove)
+	err := tools.RemoveWithArkade(configFilePath, toolsToRemove)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
-func handleDefaultState(configFilePath string) {
-	getSyncState(configFilePath)
+func handleDefaultState(configFilePath string) error {
+	tools.GetSyncState(configFilePath)
+	return nil
 }
