@@ -19,6 +19,15 @@ func GetBinDir() (string, error) {
 	return filepath.Join(usr.HomeDir, ".arkade", "bin"), nil
 }
 
+// GetConfigDir retrieves the path to the arkade directory for the configuration.
+func GetConfigDir() (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(usr.HomeDir, ".arkade"), nil
+}
+
 // ListToolsInBinDir lists all tools present in the arkade/bin directory.
 func ListToolsInBinDir() ([]string, error) {
 	binDir, err := GetBinDir()

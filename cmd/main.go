@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var (
@@ -20,6 +21,42 @@ var (
 	removeFlag      = flag.String("remove", "", "Remove specified tools. (Alias: -r)")
 	configShellFlag = flag.Bool("config-shell", false, "Update the shell configuration to include arkade-lvlup in the PATH. (Alias: -c)")
 )
+
+var orderedFlags = []string{"passthrough", "forceSync", "configShell", "get", "remove"}
+
+var flagHandlers = map[string]func(capturedFlags, string) error{
+	"passthrough": func(c capturedFlags, configFilePath string) error {
+		// Handle passthrough functionality
+		return nil
+	},
+	"forceSync": func(c capturedFlags, configFilePath string) error {
+		if c.force && !c.sync {
+			return errors.New("-f or --force can only be used with --sync or -s.")
+		}
+		if c.sync {
+			return handleSync(configFilePath, c.force, c.passthrough)
+		}
+		return nil
+	},
+	"configShell": func(c capturedFlags, configFilePath string) error {
+		if c.configShell {
+			return handleShellConfig()
+		}
+		return nil
+	},
+	"get": func(c capturedFlags, configFilePath string) error {
+		if c.get != "" {
+			return handleGet(configFilePath, c.get, c.force)
+		}
+		return nil
+	},
+	"remove": func(c capturedFlags, configFilePath string) error {
+		if c.remove != "" {
+			return handleRemove(configFilePath, c.remove)
+		}
+		return nil
+	},
+}
 
 func init() {
 	flag.BoolVar(syncFlag, "s", false, "Alias for --sync.")
@@ -32,15 +69,48 @@ type ToolConfig struct {
 	Tools []string `yaml:"tools"`
 }
 
+type capturedFlags struct {
+	force       bool
+	passthrough bool
+	sync        bool
+	get         string
+	remove      string
+	configShell bool
+}
+
+func captureAllFlags() capturedFlags {
+	getTools := *getFlag
+	removeTools := *removeFlag
+
+	// Exclude flags from the tools list
+	for _, flagVal := range []string{"-p", "-f", "-s", "-c", "-g", "-r"} {
+		getTools = removeFlagFromToolList(getTools, flagVal)
+		removeTools = removeFlagFromToolList(removeTools, flagVal)
+	}
+
+	return capturedFlags{
+		force:       *forceFlag,
+		passthrough: *passthroughFlag,
+		sync:        *syncFlag,
+		get:         getTools,
+		remove:      removeTools,
+		configShell: *configShellFlag,
+	}
+}
+
+// Remove flag from tool list if accidentally passed as a tool name
+func removeFlagFromToolList(toolList, flagVal string) string {
+	return strings.ReplaceAll(toolList, flagVal, "")
+}
+
 func main() {
 	flag.Parse()
 
-	binDir, err := tools.GetBinDir()
+	configDir, err := tools.GetConfigDir()
 	if err != nil {
-		log.Fatalf("Error getting bin directory: %s\n", err)
+		log.Fatalf("Error getting config directory: %s\n", err)
 	}
-
-	configFilePath := filepath.Join(binDir, "lvlup.yaml")
+	configFilePath := filepath.Join(configDir, "lvlup.yaml")
 
 	// Check and initialize the config if it doesn't exist
 	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
@@ -50,28 +120,26 @@ func main() {
 		}
 	}
 
-	if err := handleFlags(configFilePath); err != nil {
+	c := captureAllFlags()
+	if err := handleFlagsInOrder(c, configFilePath); err != nil {
 		log.Fatalf("Error handling flags: %s", err)
 	}
 }
 
-func handleFlags(configFilePath string) error {
-	if *forceFlag && !*syncFlag {
-		return errors.New("-f or --force can only be used with --sync or -s.")
+func handleFlagsInOrder(c capturedFlags, configFilePath string) error {
+	for _, flagKey := range orderedFlags {
+		handler, exists := flagHandlers[flagKey]
+		if !exists {
+			return fmt.Errorf("No handler found for flag: %s", flagKey)
+		}
+
+		err := handler(c, configFilePath)
+		if err != nil {
+			return err
+		}
 	}
 
-	switch {
-	case *syncFlag:
-		return handleSync(configFilePath, *forceFlag, *passthroughFlag)
-	case *getFlag != "":
-		return handleGet(configFilePath, *getFlag, *forceFlag)
-	case *removeFlag != "":
-		return handleRemove(configFilePath, *removeFlag)
-	case *configShellFlag:
-		return handleShellConfig()
-	default:
-		return handleDefaultState(configFilePath)
-	}
+	return handleDefaultState(configFilePath)
 }
 
 func handleSync(configFilePath string, force bool, passthrough bool) error {
@@ -133,6 +201,6 @@ func handleShellConfig() error {
 }
 
 func handleDefaultState(configFilePath string) error {
-	// TODO: Implement this function
+	tools.GetSyncState(configFilePath)
 	return nil
 }
