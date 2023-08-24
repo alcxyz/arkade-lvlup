@@ -69,7 +69,7 @@ func InitializeConfigIfNotExists(filePath string) ([]string, error) {
 		return nil, err
 	}
 
-	cfg := config.Config{Tools: tools}
+	cfg := config.ToolConfig{Tools: tools}
 
 	err = config.WriteConfig(filePath, cfg)
 	if err != nil {

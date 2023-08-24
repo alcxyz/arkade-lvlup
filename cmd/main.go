@@ -1,6 +1,8 @@
 package main
 
 import (
+	"arkade-lvlup/config"
+	"arkade-lvlup/shell"
 	"arkade-lvlup/tools"
 	"errors"
 	"flag"
@@ -26,7 +28,7 @@ func init() {
 	flag.BoolVar(configShellFlag, "c", false, "Alias for --config-shell.")
 }
 
-type Config struct {
+type ToolConfig struct {
 	Tools []string `yaml:"tools"`
 }
 
@@ -74,27 +76,27 @@ func handleFlags(configFilePath string) error {
 
 func handleSync(configFilePath string, force bool, passthrough bool) error {
 	if force {
-		return tools.ForceSyncTools(configFilePath, force)
+		return tools.ForceSyncTools(configFilePath, passthrough)
 	}
 
-	config, err := readConfig(configFilePath)
+	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		return fmt.Errorf("error reading config: %w", err)
 	}
 
-	return tools.SetupWithArkadeIdempotent(configFilePath, config.Tools, force, passthrough)
+	return tools.SetupWithArkadeIdempotent(configFilePath, cfg.Tools, force, passthrough)
 }
 
 func handleGet(configFilePath string, getFlagValue string, force bool) error {
-	tools := tools.PopulateArray(getFlagValue)
-	config, err := readConfig(configFilePath)
+	toolNames := tools.PopulateArray(getFlagValue)
+	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		return fmt.Errorf("error reading config: %w", err)
 	}
-	for _, tool := range tools {
-		if !tools.ContainsElement(config.Tools, tool) {
-			config.Tools = append(config.Tools, tool)
-			err := writeConfig(configFilePath, config)
+	for _, tool := range toolNames {
+		if !tools.ContainsElement(cfg.Tools, tool) {
+			cfg.Tools = append(cfg.Tools, tool)
+			err = config.WriteConfig(configFilePath, cfg)
 			if err != nil {
 				return fmt.Errorf("error writing to config: %w", err)
 			}
@@ -102,7 +104,7 @@ func handleGet(configFilePath string, getFlagValue string, force bool) error {
 		}
 	}
 
-	err = tools.SetupWithArkadeIdempotent(configFilePath, tools, force, passthrough)
+	err = tools.SetupWithArkadeIdempotent(configFilePath, toolNames, force, *passthroughFlag)
 	if err != nil {
 		return err
 	}
@@ -115,10 +117,22 @@ func handleRemove(configFilePath string, removeFlagValue string) error {
 	if err != nil {
 		return err
 	}
+
+	binDir, _ := tools.GetBinDir()
+	for _, tool := range toolsToRemove {
+		toolPath := filepath.Join(binDir, tool)
+		os.Remove(toolPath)
+	}
+
 	return nil
 }
 
+func handleShellConfig() error {
+	shell.UpdateShellConfig()
+	return nil // For now, we are not handling any errors from UpdateShellConfig
+}
+
 func handleDefaultState(configFilePath string) error {
-	tools.GetSyncState(configFilePath)
+	// TODO: Implement this function
 	return nil
 }

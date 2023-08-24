@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func updateShellConfig() {
+func UpdateShellConfig() {
 	// Determine the directory containing the arkade-lvlup executable
 	exePath, err := os.Executable()
 	if err != nil {

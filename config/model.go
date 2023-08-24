@@ -1,5 +1,5 @@
 package config
 
-type Config struct {
+type ToolConfig struct {
 	Tools []string `yaml:"tools"`
 }

@@ -64,22 +64,18 @@ func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, f
 }
 
 // ForceSyncTools forcefully syncs tools with the configuration.
-func ForceSyncTools(configFilePath string, forceFlag bool, passthroughFlag bool) error {
+func ForceSyncTools(configFilePath string, passthroughFlag bool) error {
 	fmt.Println("Synchronizing tools...")
 
 	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		fmt.Printf("Error reading config: %s\n", err)
-		return
+		return err
 	}
 
-	// removedTools should be calculated and returned by uninstallExtraneousTools
-	removedTools := uninstallExtraneousTools(configFilePath)
-	if removedTools == 0 && !forceFlag {
-		fmt.Println("Everything is in sync!")
-	}
+	uninstallExtraneousTools(configFilePath)
 
-	SetupWithArkadeIdempotent(configFilePath, cfg.Tools, forceFlag, passthroughFlag)
+	SetupWithArkadeIdempotent(configFilePath, cfg.Tools, true, passthroughFlag)
 	return nil
 }
 
@@ -89,13 +85,13 @@ func RemoveWithArkade(configFilePath string, toolsToRemove []string) error {
 		cfg, err := config.ReadConfig(configFilePath)
 		if err != nil {
 			fmt.Printf("Error reading config: %s\n", err)
-			return
+			return err
 		}
 
 		// Find and remove the tool from the Tools slice
 		for i, t := range cfg.Tools {
 			if t == tool {
-				config.Tools = append(config.Tools[:i], config.Tools[i+1:]...)
+				cfg.Tools = append(cfg.Tools[:i], cfg.Tools[i+1:]...)
 				break
 			}
 		}
@@ -135,7 +131,7 @@ func uninstallExtraneousTools(configFilePath string) int {
 
 	removedTools := 0
 	for _, file := range files {
-		if !ContainsElement(config.Tools, file.Name()) {
+		if !ContainsElement(cfg.Tools, file.Name()) {
 			fmt.Printf("Found extraneous tool: %s. Removing...\n", file.Name())
 
 			toolPath := filepath.Join(binDir, file.Name())
@@ -158,13 +154,13 @@ func uninstallExtraneousTools(configFilePath string) int {
 
 // GetSyncState provides an overview of the current sync state.
 func GetSyncState(configFilePath string) {
-	binDir, err := GetBinDir()
-	if err != nil {
-		fmt.Printf("Error fetching bin directory: %s\n", err)
-		return
-	}
+	// binDir, err := GetBinDir()
+	// if err != nil {
+	// 	fmt.Printf("Error fetching bin directory: %s\n", err)
+	//	return
+	//}
 
-	installedTools, err := ListToolsInBinDir(binDir)
+	installedTools, err := ListToolsInBinDir()
 	if err != nil {
 		fmt.Printf("Error listing tools: %s\n", err)
 		return
