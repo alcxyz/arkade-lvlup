@@ -4,147 +4,119 @@ import (
 	"arkade-lvlup/config"
 	"arkade-lvlup/shell"
 	"arkade-lvlup/tools"
-	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/cobra"
 )
 
+// Global Variables for capturing flag values
 var (
-	forceFlag       = flag.Bool("f", false, "Force sync.")
-	passthroughFlag = flag.Bool("p", false, "Show arkade outputs.")
-	syncFlag        = flag.Bool("sync", false, "Sync tools based on configuration. (Alias: -s)")
-	getFlag         = flag.String("get", "", "Install or reinstall specified tools. (Alias: -g)")
-	removeFlag      = flag.String("remove", "", "Remove specified tools. (Alias: -r)")
-	configShellFlag = flag.Bool("config-shell", false, "Update the shell configuration to include arkade-lvlup in the PATH. (Alias: -c)")
+	force           bool
+	passthroughFlag bool
+	configShell     bool
 )
 
-var orderedFlags = []string{"passthrough", "forceSync", "configShell", "get", "remove"}
+// Root command represents the base command when called without any subcommands
+var rootCmd = &cobra.Command{
+	Use:   "arkade-lvlup",
+	Short: "lvlup - arkade CLI tool manager",
+	Run: func(cmd *cobra.Command, args []string) {
+		// Default behavior when no flag is provided
+		configFilePath, err := getConfigFilePath()
+		if err != nil {
+			log.Fatal(err)
+		}
+		handleDefaultState(configFilePath)
+	},
+}
 
-var flagHandlers = map[string]func(capturedFlags, string) error{
-	"passthrough": func(c capturedFlags, configFilePath string) error {
-		// Handle passthrough functionality
-		return nil
+// Define sub-commands
+var syncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Sync tools based on configuration.",
+	Run: func(cmd *cobra.Command, args []string) {
+		configFilePath, err := getConfigFilePath()
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = handleSync(configFilePath)
+		if err != nil {
+			log.Fatal(err)
+		}
 	},
-	"forceSync": func(c capturedFlags, configFilePath string) error {
-		if c.force && !c.sync {
-			return errors.New("-f or --force can only be used with --sync or -s.")
+}
+
+var getCmd = &cobra.Command{
+	Use:   "get [tools]",
+	Short: "Install or reinstall specified tools.",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		configFilePath, err := getConfigFilePath()
+		if err != nil {
+			log.Fatal(err)
 		}
-		if c.sync {
-			return handleSync(configFilePath, c.force, c.passthrough)
+		toolsToGet := strings.Join(args, ",")              // Joining all arguments with commas
+		err = handleGet(configFilePath, toolsToGet, force) // Removed passthroughFlag
+		if err != nil {
+			log.Fatal(err)
 		}
-		return nil
 	},
-	"configShell": func(c capturedFlags, configFilePath string) error {
-		if c.configShell {
-			return handleShellConfig()
+}
+
+var removeCmd = &cobra.Command{
+	Use:   "remove [tools]",
+	Short: "Remove specified tools.",
+	Args:  cobra.MinimumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		configFilePath, err := getConfigFilePath()
+		if err != nil {
+			log.Fatal(err)
 		}
-		return nil
+		toolsToRemove := strings.Join(args, ",")          // Joining all arguments with commas
+		err = handleRemove(configFilePath, toolsToRemove) // Removed passthroughFlag
+		if err != nil {
+			log.Fatal(err)
+		}
+
 	},
-	"get": func(c capturedFlags, configFilePath string) error {
-		if c.get != "" {
-			return handleGet(configFilePath, c.get, c.force)
+}
+
+var shellCmd = &cobra.Command{
+	Use:   "config-shell",
+	Short: "Update the shell configuration to include arkade-lvlup in the PATH.",
+	Run: func(cmd *cobra.Command, args []string) {
+		err := handleShellConfig()
+		if err != nil {
+			log.Fatal(err)
 		}
-		return nil
-	},
-	"remove": func(c capturedFlags, configFilePath string) error {
-		if c.remove != "" {
-			return handleRemove(configFilePath, c.remove)
-		}
-		return nil
 	},
 }
 
 func init() {
-	flag.BoolVar(syncFlag, "s", false, "Alias for --sync.")
-	flag.StringVar(getFlag, "g", "", "Alias for --get.")
-	flag.StringVar(removeFlag, "r", "", "Alias for --remove.")
-	flag.BoolVar(configShellFlag, "c", false, "Alias for --config-shell.")
-}
+	// Add flags to commands
+	syncCmd.Flags().BoolVarP(&force, "force", "f", false, "Force sync.")
+	syncCmd.Flags().BoolVarP(&passthroughFlag, "passthrough", "p", false, "Show arkade outputs.")
+	getCmd.Flags().BoolVarP(&passthroughFlag, "passthrough", "p", false, "Show arkade outputs.")
+	removeCmd.Flags().BoolVarP(&passthroughFlag, "passthrough", "p", false, "Show arkade outputs.")
 
-type ToolConfig struct {
-	Tools []string `yaml:"tools"`
-}
-
-type capturedFlags struct {
-	force       bool
-	passthrough bool
-	sync        bool
-	get         string
-	remove      string
-	configShell bool
-}
-
-func captureAllFlags() capturedFlags {
-	getTools := *getFlag
-	removeTools := *removeFlag
-
-	// Exclude flags from the tools list
-	for _, flagVal := range []string{"-p", "-f", "-s", "-c", "-g", "-r"} {
-		getTools = removeFlagFromToolList(getTools, flagVal)
-		removeTools = removeFlagFromToolList(removeTools, flagVal)
-	}
-
-	return capturedFlags{
-		force:       *forceFlag,
-		passthrough: *passthroughFlag,
-		sync:        *syncFlag,
-		get:         getTools,
-		remove:      removeTools,
-		configShell: *configShellFlag,
-	}
-}
-
-// Remove flag from tool list if accidentally passed as a tool name
-func removeFlagFromToolList(toolList, flagVal string) string {
-	return strings.ReplaceAll(toolList, flagVal, "")
+	// Add sub-commands to root command
+	rootCmd.AddCommand(syncCmd, getCmd, removeCmd, shellCmd)
 }
 
 func main() {
-	flag.Parse()
-
-	configDir, err := tools.GetConfigDir()
-	if err != nil {
-		log.Fatalf("Error getting config directory: %s\n", err)
-	}
-	configFilePath := filepath.Join(configDir, "lvlup.yaml")
-
-	// Check and initialize the config if it doesn't exist
-	if _, err := os.Stat(configFilePath); os.IsNotExist(err) {
-		_, err := tools.InitializeConfigIfNotExists(configFilePath)
-		if err != nil {
-			log.Fatalf("Error initializing configuration: %s\n", err)
-		}
-	}
-
-	c := captureAllFlags()
-	if err := handleFlagsInOrder(c, configFilePath); err != nil {
-		log.Fatalf("Error handling flags: %s", err)
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
 	}
 }
 
-func handleFlagsInOrder(c capturedFlags, configFilePath string) error {
-	for _, flagKey := range orderedFlags {
-		handler, exists := flagHandlers[flagKey]
-		if !exists {
-			return fmt.Errorf("No handler found for flag: %s", flagKey)
-		}
-
-		err := handler(c, configFilePath)
-		if err != nil {
-			return err
-		}
-	}
-
-	return handleDefaultState(configFilePath)
-}
-
-func handleSync(configFilePath string, force bool, passthrough bool) error {
+func handleSync(configFilePath string) error {
 	if force {
-		return tools.ForceSyncTools(configFilePath, passthrough)
+		return tools.ForceSyncTools(configFilePath, passthroughFlag)
 	}
 
 	cfg, err := config.ReadConfig(configFilePath)
@@ -152,7 +124,7 @@ func handleSync(configFilePath string, force bool, passthrough bool) error {
 		return fmt.Errorf("error reading config: %w", err)
 	}
 
-	return tools.SetupWithArkadeIdempotent(configFilePath, cfg.Tools, force, passthrough)
+	return tools.SetupWithArkadeIdempotent(configFilePath, cfg.Tools, force, passthroughFlag)
 }
 
 func handleGet(configFilePath string, getFlagValue string, force bool) error {
@@ -172,7 +144,7 @@ func handleGet(configFilePath string, getFlagValue string, force bool) error {
 		}
 	}
 
-	err = tools.SetupWithArkadeIdempotent(configFilePath, toolNames, force, *passthroughFlag)
+	err = tools.SetupWithArkadeIdempotent(configFilePath, toolNames, force, passthroughFlag)
 	if err != nil {
 		return err
 	}
@@ -196,11 +168,18 @@ func handleRemove(configFilePath string, removeFlagValue string) error {
 }
 
 func handleShellConfig() error {
-	shell.UpdateShellConfig()
-	return nil // For now, we are not handling any errors from UpdateShellConfig
+	return shell.UpdateShellConfig()
 }
 
 func handleDefaultState(configFilePath string) error {
 	tools.GetSyncState(configFilePath)
 	return nil
+}
+
+func getConfigFilePath() (string, error) {
+	configDir, err := tools.GetConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("Error getting config directory: %s", err)
+	}
+	return filepath.Join(configDir, "lvlup.yaml"), nil
 }
