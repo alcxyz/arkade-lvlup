@@ -1,0 +1,67 @@
+package configcon
+
+import (
+	"arkade-lvlup/tools"
+	"fmt"
+	"io/ioutil"
+	"os"
+	"strings"
+)
+
+// InitializeConfigIfNotExists checks if the config exists. If not, it initializes a new config with tools found in the arkade directory.
+func InitializeConfigIfNotExists(filePath string) ([]string, error) {
+	if configExists(filePath) {
+		return nil, nil
+	}
+
+	fmt.Println("Config file not found. Initializing a new configuration file...")
+
+	tools, err := ListToolsInBinDir()
+	if err != nil {
+		return nil, err
+	}
+
+	config := Config{
+		Tools: tools,
+	}
+
+	err = WriteConfig(filePath, config)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Println("Configuration file has been created at:", filePath)
+	fmt.Println("Tools added to the configuration:", strings.Join(tools, ", "))
+
+	return tools, nil
+}
+
+// configExists checks if the configuration file exists.
+func configExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return !os.IsNotExist(err)
+}
+
+// ListToolsInBinDir lists all the tools in the arkade binary directory
+func ListToolsInBinDir() ([]string, error) {
+	// Adjust this path as needed. I'm assuming it points to the bin directory.
+	binDir, err := tools.GetBinDir()
+	if err != nil {
+		return nil, err
+	}
+
+	files, err := ioutil.ReadDir(binDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var tools []string
+	for _, file := range files {
+		if file.IsDir() {
+			continue // skip directories
+		}
+		tools = append(tools, file.Name())
+	}
+
+	return tools, nil
+}
