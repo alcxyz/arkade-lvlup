@@ -7,12 +7,11 @@ import (
 	"strings"
 )
 
-func UpdateShellConfig() {
+func UpdateShellConfig() error {
 	// Determine the directory containing the arkade-lvlup executable
 	exePath, err := os.Executable()
 	if err != nil {
-		fmt.Println("Error determining the arkade-lvlup location:", err)
-		return
+		return fmt.Errorf("Error determining the arkade-lvlup location: %w", err)
 	}
 	arkadeLvlupDir := filepath.Dir(exePath)
 
@@ -26,8 +25,7 @@ func UpdateShellConfig() {
 	case strings.Contains(shell, "bash"):
 		configFile = ".bashrc"
 	default:
-		fmt.Println("Unsupported shell.")
-		return
+		return fmt.Errorf("Unsupported shell.")
 	}
 
 	configPath := filepath.Join(os.Getenv("HOME"), configFile)
@@ -35,14 +33,12 @@ func UpdateShellConfig() {
 	// Check if the block already exists
 	content, err := os.ReadFile(configPath)
 	if err != nil {
-		fmt.Printf("Error reading %s: %s\n", configFile, err)
-		return
+		return fmt.Errorf("Error reading %s: %w", configFile, err)
 	}
 
 	relativePath, err := filepath.Rel(os.Getenv("HOME"), arkadeLvlupDir)
 	if err != nil {
-		fmt.Println("Error computing relative path:", err)
-		return
+		return fmt.Errorf("Error computing relative path: %w", err)
 	}
 
 	block := fmt.Sprintf(`# Check for arkade and arkade-lvlup
@@ -55,7 +51,7 @@ fi`, relativePath, relativePath)
 
 	if strings.Contains(string(content), block) {
 		fmt.Println("Configuration already set up.")
-		return
+		return nil
 	}
 
 	// Confirm with the user
@@ -64,15 +60,15 @@ fi`, relativePath, relativePath)
 	fmt.Scanln(&response)
 	if response != "y" {
 		fmt.Println("Aborted.")
-		return
+		return nil
 	}
 
 	// Append the block to the file
 	err = os.WriteFile(configPath, append(content, []byte("\n"+block)...), 0644)
 	if err != nil {
-		fmt.Printf("Error updating %s: %s\n", configFile, err)
-		return
+		return fmt.Errorf("Error updating %s: %w", configFile, err)
 	}
 
 	fmt.Println("Configuration updated successfully!")
+	return nil
 }
