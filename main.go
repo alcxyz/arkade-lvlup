@@ -1,14 +1,15 @@
 package main
 
 import (
-	"arkade-lvlup/config"
-	"arkade-lvlup/shell"
-	"arkade-lvlup/tools"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"arkade-lvlup/config"
+	"arkade-lvlup/shell"
+	"arkade-lvlup/tools"
 
 	"github.com/spf13/cobra"
 )
@@ -18,18 +19,28 @@ var (
 	force           bool
 	passthroughFlag bool
 	configShell     bool
+	configFilePath  string
 )
+
+var globalTools config.ArkadeTools
 
 // Root command represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "arkade-lvlup",
 	Short: "lvlup - arkade CLI tool manager",
-	Run: func(cmd *cobra.Command, args []string) {
-		// Default behavior when no flag is provided
-		configFilePath, err := getConfigFilePath()
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		var err error
+		configFilePath, err = getConfigFilePath()
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		globalTools, err = config.ReadConfig(configFilePath)
+		if err != nil {
+			log.Fatal(err)
+		}
+	},
+	Run: func(cmd *cobra.Command, args []string) {
 		handleDefaultState(configFilePath)
 	},
 }
@@ -39,11 +50,7 @@ var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Sync tools based on configuration.",
 	Run: func(cmd *cobra.Command, args []string) {
-		configFilePath, err := getConfigFilePath()
-		if err != nil {
-			log.Fatal(err)
-		}
-		err = handleSync(configFilePath)
+		err := handleSync(globalTools, configFilePath)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -55,12 +62,8 @@ var getCmd = &cobra.Command{
 	Short: "Install or reinstall specified tools.",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		configFilePath, err := getConfigFilePath()
-		if err != nil {
-			log.Fatal(err)
-		}
-		toolsToGet := strings.Join(args, ",")              // Joining all arguments with commas
-		err = handleGet(configFilePath, toolsToGet, force) // Removed passthroughFlag
+		toolsToGet := strings.Join(args, ",")
+		err := handleGet(globalTools, toolsToGet, force, configFilePath)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -72,16 +75,11 @@ var removeCmd = &cobra.Command{
 	Short: "Remove specified tools.",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		configFilePath, err := getConfigFilePath()
+		toolsToRemove := strings.Join(args, ",")
+		err := handleRemove(globalTools, toolsToRemove, configFilePath)
 		if err != nil {
 			log.Fatal(err)
 		}
-		toolsToRemove := strings.Join(args, ",")          // Joining all arguments with commas
-		err = handleRemove(configFilePath, toolsToRemove) // Removed passthroughFlag
-		if err != nil {
-			log.Fatal(err)
-		}
-
 	},
 }
 
@@ -114,25 +112,22 @@ func main() {
 	}
 }
 
-func handleSync(configFilePath string) error {
+func handleSync(cfg config.ArkadeTools, configFilePath string) error {
 	if force {
-		return tools.ForceSyncTools(configFilePath, passthroughFlag)
+		return tools.SyncToolsForcefully(configFilePath, passthroughFlag)
 	}
-
-	cfg, err := config.ReadConfig(configFilePath)
-	if err != nil {
-		return fmt.Errorf("error reading config: %w", err)
-	}
-
-	return tools.SetupWithArkadeIdempotent(configFilePath, cfg.Tools, force, passthroughFlag)
+	return tools.InstallToolsIdempotently(configFilePath, cfg.Tools, force, passthroughFlag)
 }
 
-func handleGet(configFilePath string, getFlagValue string, force bool) error {
+func handleGet(cfg config.ArkadeTools, getFlagValue string, force bool, configFilePath string) error {
 	toolNames := tools.PopulateArray(getFlagValue)
+
+	// Moved the reading of the config outside the loop.
 	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		return fmt.Errorf("error reading config: %w", err)
 	}
+
 	for _, tool := range toolNames {
 		if !tools.ContainsElement(cfg.Tools, tool) {
 			cfg.Tools = append(cfg.Tools, tool)
@@ -144,14 +139,14 @@ func handleGet(configFilePath string, getFlagValue string, force bool) error {
 		}
 	}
 
-	err = tools.SetupWithArkadeIdempotent(configFilePath, toolNames, force, passthroughFlag)
+	err = tools.InstallToolsIdempotently(configFilePath, toolNames, force, passthroughFlag)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to install tools: %w", err)
 	}
 	return nil
 }
 
-func handleRemove(configFilePath string, removeFlagValue string) error {
+func handleRemove(cfg config.ArkadeTools, removeFlagValue string, configFilePath string) error {
 	toolsToRemove := tools.PopulateArray(removeFlagValue)
 	err := tools.RemoveWithArkade(configFilePath, toolsToRemove)
 	if err != nil {
