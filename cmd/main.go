@@ -23,7 +23,7 @@ var (
 // Root command represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "arkade-lvlup",
-	Short: "Arkade LvlUp CLI tool",
+	Short: "lvlup - arkade CLI tool manager",
 	Run: func(cmd *cobra.Command, args []string) {
 		// Default behavior when no flag is provided
 		configFilePath, err := getConfigFilePath()

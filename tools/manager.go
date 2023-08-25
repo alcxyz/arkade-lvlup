@@ -154,12 +154,6 @@ func uninstallExtraneousTools(configFilePath string) int {
 
 // GetSyncState provides an overview of the current sync state.
 func GetSyncState(configFilePath string) {
-	// binDir, err := GetBinDir()
-	// if err != nil {
-	// 	fmt.Printf("Error fetching bin directory: %s\n", err)
-	//	return
-	//}
-
 	installedTools, err := ListToolsInBinDir()
 	if err != nil {
 		fmt.Printf("Error listing tools: %s\n", err)
@@ -199,4 +193,14 @@ func GetSyncState(configFilePath string) {
 		fmt.Println("All installed tools are in the config!")
 	}
 	fmt.Println("----------------------")
+
+	// Displaying the tools managed by arkade-lvlup
+	if len(cfg.Tools) == 0 {
+		fmt.Println("No tools are currently managed by arkade-lvlup.")
+	} else {
+		fmt.Println("Tools managed by arkade-lvlup:")
+		for _, tool := range cfg.Tools {
+			fmt.Println("-", tool)
+		}
+	}
 }
