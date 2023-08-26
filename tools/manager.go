@@ -10,12 +10,36 @@ import (
 	"strings"
 )
 
-// SetupWithArkadeIdempotent checks if the tool exists in the config,
-// if not, adds it and installs/reinstalls it using arkade.
-func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, forceFlag bool, passthroughFlag bool) error {
+// runArkadeCommand executes the arkade command to fetch and install the given tool.
+func runArkadeCommand(tool string, passthroughFlag bool) error {
+	cmd := exec.Command("arkade", "get", tool)
+	if passthroughFlag {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	return cmd.Run()
+}
+
+// toolInstalled checks if a given tool is already installed.
+func toolInstalled(tool string) (bool, error) {
 	binDir, err := GetBinDir()
 	if err != nil {
-		return fmt.Errorf("error fetching bin directory: %w", err)
+		return false, fmt.Errorf("error fetching bin directory: %w", err)
+	}
+	toolPath := filepath.Join(binDir, tool)
+	if _, err := os.Stat(toolPath); err == nil {
+		return true, nil
+	}
+	return false, nil
+}
+
+// InstallToolsIdempotently installs tools using arkade. If the tool is already installed and
+// forceFlag is not set, it skips the installation. If the tool isn't in the configuration file,
+// it adds it there.
+func InstallToolsIdempotently(configFilePath string, toolsToProcess []string, forceFlag bool, passthroughFlag bool) error {
+	cfg, err := config.ReadConfig(configFilePath)
+	if err != nil {
+		return fmt.Errorf("error reading config: %w", err)
 	}
 
 	for _, tool := range toolsToProcess {
@@ -24,14 +48,12 @@ func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, f
 			continue
 		}
 
-		cfg, err := config.ReadConfig(configFilePath)
+		installed, err := toolInstalled(tool)
 		if err != nil {
-			fmt.Printf("Error reading config: %s\n", err)
 			return err
 		}
 
-		toolPath := filepath.Join(binDir, tool)
-		if _, err := os.Stat(toolPath); err == nil && !forceFlag {
+		if installed && !forceFlag {
 			fmt.Printf("Tool: %s already installed. Skipping...\n", tool)
 			continue
 		}
@@ -40,46 +62,36 @@ func SetupWithArkadeIdempotent(configFilePath string, toolsToProcess []string, f
 			cfg.Tools = append(cfg.Tools, tool)
 			err := config.WriteConfig(configFilePath, cfg)
 			if err != nil {
-				fmt.Printf("Error writing to config: %s\n", err)
-				return err
+				return fmt.Errorf("error writing to config: %w", err)
 			}
 			fmt.Printf("Added %s to the configuration file.\n", tool)
 		}
 
-		fmt.Printf("Installing tool: %s...\n", tool)
-		cmd := exec.Command("arkade", "get", tool)
-		if passthroughFlag {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		err = cmd.Run()
+		err = runArkadeCommand(tool, passthroughFlag)
 		if err != nil {
 			fmt.Printf("Error: Failed to install %s via arkade. Moving on to the next tool.\n", tool)
 		} else {
 			fmt.Printf("Successfully installed %s.\n", tool)
 		}
 	}
-	fmt.Println("Everything is in sync!")
 	return nil
 }
 
-// ForceSyncTools forcefully syncs tools with the configuration.
-func ForceSyncTools(configFilePath string, passthroughFlag bool) error {
+// SyncToolsForcefully ensures all tools in the configuration file are installed by force. It will also remove
+// any tools found in the arkade directory but not in the configuration.
+func SyncToolsForcefully(configFilePath string, passthroughFlag bool) error {
 	fmt.Println("Synchronizing tools...")
 
 	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
-		fmt.Printf("Error reading config: %s\n", err)
-		return err
+		return fmt.Errorf("error reading config: %w", err)
 	}
 
-	uninstallExtraneousTools(configFilePath)
-
-	SetupWithArkadeIdempotent(configFilePath, cfg.Tools, true, passthroughFlag)
+	SyncFileSystemWithConfig(configFilePath)
+	InstallToolsIdempotently(configFilePath, cfg.Tools, true, passthroughFlag)
 	return nil
 }
 
-// removeWithArkade removes tools from the config and uninstalls them using arkade.
 func RemoveWithArkade(configFilePath string, toolsToRemove []string) error {
 	for _, tool := range toolsToRemove {
 		cfg, err := config.ReadConfig(configFilePath)
@@ -102,15 +114,15 @@ func RemoveWithArkade(configFilePath string, toolsToRemove []string) error {
 			return err
 		}
 
-		fmt.Printf("Marked %s for removal.\n", tool)
+		fmt.Printf("Marked %s for removal from configuration.\n", tool)
 	}
-
-	uninstallExtraneousTools(configFilePath)
 	return nil
 }
 
-// uninstallExtraneousTools removes tools that are present in the arkade directory but not in the config.
-func uninstallExtraneousTools(configFilePath string) int {
+// SyncFilesSystemWithConfig identifies and removes tools that are present in the arkade directory
+// but not in the configuration file.
+func SyncFileSystemWithConfig(configFilePath string) int {
+
 	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		fmt.Printf("Error reading config: %s\n", err)
@@ -152,7 +164,26 @@ func uninstallExtraneousTools(configFilePath string) int {
 	return removedTools
 }
 
-// GetSyncState provides an overview of the current sync state.
+func RemoveToolsFromFS(toolsToRemove []string) error {
+	binDir, err := GetBinDir()
+	if err != nil {
+		return err
+	}
+
+	for _, tool := range toolsToRemove {
+		toolPath := filepath.Join(binDir, tool)
+		err = os.Remove(toolPath)
+		if err != nil {
+			fmt.Printf("Failed to remove tool %s from file system: %s\n", tool, err)
+			// Deciding to just print the error rather than halting the entire process.
+			// If you want to stop, you can return the error here.
+		}
+	}
+	return nil
+}
+
+// GetSyncState prints the state of tools synchronization. It checks which tools are installed but not
+// in the config, and which tools are in the config but not installed. It then prints a summary of the results.
 func GetSyncState(configFilePath string) {
 	installedTools, err := ListToolsInBinDir()
 	if err != nil {

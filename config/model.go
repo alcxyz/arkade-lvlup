@@ -1,14 +1,6 @@
 package config
 
-type ToolConfig struct {
+// ArkadeTools represents the tools configuration structure derived from the YAML file.
+type ArkadeTools struct {
 	Tools []string `yaml:"tools"`
-}
-
-type capturedFlags struct {
-	force       bool
-	passthrough bool
-	sync        bool
-	get         string
-	remove      string
-	configShell bool
 }

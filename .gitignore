@@ -10,8 +10,8 @@
 *.out
 
 # Go Module
-go.sum
-go.mod
+#go.sum
+#go.mod
 
 # IDEs
 .idea/

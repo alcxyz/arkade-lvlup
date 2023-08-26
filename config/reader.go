@@ -6,24 +6,24 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-// ReadConfig reads the YAML configuration file and unmarshals it into a ToolConfig struct.
-func ReadConfig(filePath string) (ToolConfig, error) {
+// ReadConfig reads the YAML configuration file and unmarshals it into an ArkadeTools struct.
+func ReadConfig(filePath string) (ArkadeTools, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return ToolConfig{}, err
+		return ArkadeTools{}, err
 	}
 
-	var config ToolConfig
+	var config ArkadeTools
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
-		return ToolConfig{}, err
+		return ArkadeTools{}, err
 	}
 
 	return config, nil
 }
 
-// WriteConfig marshals a ToolConfig struct and writes it to a YAML file.
-func WriteConfig(filePath string, config ToolConfig) error {
+// WriteConfig marshals an ArkadeTools struct and writes it to a YAML file.
+func WriteConfig(filePath string, config ArkadeTools) error {
 	data, err := yaml.Marshal(&config)
 	if err != nil {
 		return err

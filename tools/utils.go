@@ -78,7 +78,7 @@ func InitializeConfigIfNotExists(filePath string) ([]string, error) {
 		return nil, err
 	}
 
-	cfg := config.ToolConfig{Tools: tools}
+	cfg := config.ArkadeTools{Tools: tools} // Updated this line
 
 	err = config.WriteConfig(filePath, cfg)
 	if err != nil {
@@ -95,4 +95,12 @@ func InitializeConfigIfNotExists(filePath string) ([]string, error) {
 func configExists(filePath string) bool {
 	_, err := os.Stat(filePath)
 	return !os.IsNotExist(err)
+}
+
+func GetConfigFilePath() (string, error) {
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("Error getting config directory: %s", err)
+	}
+	return filepath.Join(configDir, "lvlup.yaml"), nil
 }
