@@ -64,6 +64,73 @@ tools:
 
 When you synchronize using arkade-lvlup, it will ensure that the tools listed in the configuration are installed and any tools not in the list are removed.
 
+### Directory Tree
+
+    ./arkade-lvlup
+    ├── LICENSE
+    ├── README.md
+    ├── arkade-lvlup
+    ├── cmd
+    │   ├── get.go
+    │   ├── remove.go
+    │   ├── shellconfig.go
+    │   └── sync.go
+    ├── config
+    │   ├── flags.go
+    │   ├── model.go
+    │   └── reader.go
+    ├── go.mod
+    ├── go.sum
+    ├── handlers
+    │   ├── gethandler.go
+    │   ├── removehandler.go
+    │   ├── shellconfighandler.go
+    │   └── synchandler.go
+    ├── main.go
+    ├── shell
+    │   └── configurer.go
+    └── tools
+        ├── config_utils.go
+        ├── file_ops.go
+        ├── general_utils.go
+        ├── installer.go
+        ├── remover.go
+        └── syncer.go
+
+6 directories, 24 files
+
+## Continuous Integration and Continuous Deployment (CI/CD)
+Our project uses GitHub Actions to automate the processes of building, testing, and releasing versions of the application. Here's a brief overview:
+
+### Triggers
+- **Pushes to main:** Every push to the **main** branch will trigger the build and test jobs.
+- **Pull Requests to main:** Any PR opened against the **main** branch will also initiate the build and test workflows.
+- **Commit Message Triggers:** Including the **[FORCE BUILD]** keyword in your commit message will force a build regardless of the branch you're working on.
+- **Tagging Releases:** When a new semantic version tag (e.g., 1.2.3) is pushed to the repository, this will initiate the release process.
+
+### Workflows
+1. **Build & Test:**
+
+- Checkout the code from the repository.
+- Setup the desired Go environment.
+- Cache and download Go module dependencies.
+- Run all tests in the project using go test ./....
+
+2. **Release:**
+
+- Triggered after a successful build when a new tag is pushed.
+- Creates a new release on GitHub using the tag name.
+- Builds a binary named arkade-lvlup.
+- Attaches the binary to the release as an asset.
+
+### Versioning
+We follow the versioning style of arkade, which is semantic versioning without the 'v' prefix. When you're ready to create a new release:
+
+1. Tag the commit: **git tag 1.0.1**.
+2. Push the tag: **git push --tags**.
+
+The CI/CD pipeline will then automatically create a release for that version.
+
 ### Contributing
 We welcome contributions! Please open an issue or submit a pull request if you would like to help improve arkade lvlup.
 
