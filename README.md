@@ -10,8 +10,20 @@
 4. Update shell configuration to include `arkade-lvlup` in the PATH.
 
 ## Installation
+1. Clone the repository:
 
-_TODO: Include installation steps._
+    git clone https://github.com/alcxyz/arkade-lvlup.git && cd arkade-lvlup
+
+2. 
+Option A: Use the pre-built arkade-lvlup binary.
+
+Option B: Build from source with Go:
+    
+    go build -o arkade-lvlup .
+
+3. Integrate with your shell:
+
+    ./arkade-lvlup config-shell
 
 ## Usage
 
