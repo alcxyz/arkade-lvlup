@@ -96,3 +96,11 @@ func configExists(filePath string) bool {
 	_, err := os.Stat(filePath)
 	return !os.IsNotExist(err)
 }
+
+func GetConfigFilePath() (string, error) {
+	configDir, err := GetConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("Error getting config directory: %s", err)
+	}
+	return filepath.Join(configDir, "lvlup.yaml"), nil
+}
