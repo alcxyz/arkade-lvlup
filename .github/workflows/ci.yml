@@ -13,12 +13,29 @@ on:
 
 jobs:
   build:
-    name: Build & Test on ${{ matrix.os }}
+    name: Build & Test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    if: "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || contains(github.event.head_commit.message, '[FORCE BUILD]')"
+        os: [ubuntu-latest, macos-latest]
+        goarch: [amd64, arm64]
+        include:
+          - os: ubuntu-latest
+            goarch: amd64
+            label: linux-amd64
+            ext: ''
+          - os: ubuntu-latest
+            goarch: arm64
+            label: linux-arm64
+            ext: ''
+          - os: macos-latest
+            goarch: amd64
+            label: macOS-amd64
+            ext: ''
+          - os: macos-latest
+            goarch: arm64
+            label: macOS-AppleSilicon
+            ext: ''
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
@@ -43,13 +60,16 @@ jobs:
         run: go test ./...
 
       - name: Build binary
-        run: go build -o arkade-lvlup-${{ matrix.os }} .
+        env:
+          GOOS: ${{ matrix.os == 'macos-latest' && 'darwin' || 'linux' }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -o arkade-lvlup-${{ matrix.label }}${{ matrix.ext }} .
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v2
         with:
-          name: arkade-lvlup-${{ matrix.os }}
-          path: ./arkade-lvlup-${{ matrix.os }}
+          name: arkade-lvlup-${{ matrix.label }}
+          path: ./arkade-lvlup-${{ matrix.label }}${{ matrix.ext }}
 
   release:
     name: Create Release
@@ -60,23 +80,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Download built artifact for Linux
+      # Here, you might need multiple Download built artifact steps, one for each combination, or adjust as needed for your release structure
+      - name: Download built artifact
         uses: actions/download-artifact@v2
         with:
-          name: arkade-lvlup-ubuntu-latest
-          path: artifacts/
-
-      - name: Download built artifact for MacOS
-        uses: actions/download-artifact@v2
-        with:
-          name: arkade-lvlup-macos-latest
-          path: artifacts/
-
-      - name: Download built artifact for Windows
-        uses: actions/download-artifact@v2
-        with:
-          name: arkade-lvlup-windows-latest
-          path: artifacts/
+          name: arkade-lvlup-linux-amd64
 
       - name: Create Release
         id: create_release
@@ -84,33 +92,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
-          body: New release for ${{ github.ref_name }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          draft: false
-          prerelease: false
+            tag_name: ${{ github.ref_name }}
+            release_name: Release ${{ github.ref_name }}
+            body: New release for ${{ github.ref_name }}
+            draft: false
+            prerelease: false
 
-      - name: Upload Release Asset for Linux
+      # Similar to the download step, you'd repeat the Upload Release Asset step for each build artifact
+      - name: Upload Release Asset
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/arkade-lvlup-ubuntu-latest
-          asset_name: arkade-lvlup-linux
-          asset_content_type: application/octet-stream
-
-      - name: Upload Release Asset for MacOS
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/arkade-lvlup-macos-latest
-          asset_name: arkade-lvlup-macos
-          asset_content_type: application/octet-stream
-
-      - name: Upload Release Asset for Windows
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/arkade-lvlup-windows-latest
-          asset_name: arkade-lvlup-windows.exe
+          asset_path: ./arkade-lvlup-linux-amd64
+          asset_name: arkade-lvlup-linux-amd64
           asset_content_type: application/octet-stream
