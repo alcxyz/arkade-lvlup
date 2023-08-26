@@ -17,7 +17,7 @@ jobs:
     name: Build & Test
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         goarch: [amd64, arm64]
     runs-on: ${{ matrix.os }}
     if: "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || contains(github.event.head_commit.message, '[FORCE BUILD]')"
@@ -47,13 +47,13 @@ jobs:
       run: go test ./...
 
     - name: Build binary
-      run: go build -o arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }} .
+      run: go build -o arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }} .
 
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
         name: arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}
-        path: ./arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}
+        path: ./arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}
 
     - name: Rename Apple Silicon binary
       if: runner.os == 'macOS' && matrix.goarch == 'arm64'
