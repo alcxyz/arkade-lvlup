@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 // runArkadeCommand executes the arkade command to fetch and install the given tool.
@@ -42,11 +41,6 @@ func InstallToolsIdempotently(configFilePath string, toolsToProcess []string, fo
 	}
 
 	for _, tool := range toolsToProcess {
-		tool = strings.TrimSpace(tool)
-		if tool == "" {
-			continue
-		}
-
 		installed, err := toolInstalled(tool)
 		if err != nil {
 			return err

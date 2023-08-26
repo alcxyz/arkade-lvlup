@@ -12,15 +12,25 @@ import (
 // SyncToolsForcefully ensures all tools in the configuration file are installed by force. It will also remove
 // any tools found in the arkade directory but not in the configuration.
 func SyncToolsForcefully(configFilePath string, passthroughFlag bool) error {
-	fmt.Println("Synchronizing tools...")
+	fmt.Println("Force synchronization initiated...")
 
 	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		return fmt.Errorf("error reading config: %w", err)
 	}
 
-	SyncFileSystemWithConfig(configFilePath)
-	InstallToolsIdempotently(configFilePath, cfg.Tools, true, passthroughFlag)
+	installedTools, err := ListToolsInBinDir()
+	if err != nil {
+		return fmt.Errorf("error listing tools in bin directory: %w", err)
+	}
+
+	fmt.Println("Reinstalling all tools in the bin directory...")
+	InstallToolsIdempotently(configFilePath, installedTools, true, passthroughFlag)
+
+	fmt.Println("Installing tools from the configuration that are not in the bin directory...")
+	InstallToolsIdempotently(configFilePath, cfg.Tools, false, passthroughFlag)
+
+	fmt.Println("Force synchronization completed!")
 	return nil
 }
 
@@ -63,7 +73,9 @@ func SyncFileSystemWithConfig(configFilePath string) int {
 	}
 
 	if removedTools == 0 {
-		fmt.Println("No extraneous tools found. Everything is in sync!")
+		fmt.Println("No extraneous tools found. Bin directory is in sync with configuration!")
+	} else {
+		fmt.Printf("%d extraneous tools removed from bin directory.\n", removedTools)
 	}
 
 	return removedTools
