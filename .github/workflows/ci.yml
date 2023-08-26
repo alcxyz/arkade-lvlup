@@ -1,9 +1,10 @@
-name: Go CI/CD
+name: Automated Go Build & Release Workflow
 
 on:
   push:
     branches:
       - main
+      - develop
     tags:
       - '*.*.*'
   pull_request:
@@ -14,7 +15,7 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
-    if: "github.ref == 'refs/heads/main' || contains(github.event.head_commit.message, '[FORCE BUILD]')"
+    if: "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || contains(github.event.head_commit.message, '[FORCE BUILD]')"
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
