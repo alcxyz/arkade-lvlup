@@ -87,12 +87,11 @@ func SyncToolsForcefully(configFilePath string, passthroughFlag bool) error {
 		return fmt.Errorf("error reading config: %w", err)
 	}
 
-	uninstallExtraneousTools(configFilePath)
+	SyncFileSystemWithConfig(configFilePath)
 	InstallToolsIdempotently(configFilePath, cfg.Tools, true, passthroughFlag)
 	return nil
 }
 
-// RemoveWithArkade removes specified tools from the configuration file and uninstalls them using arkade.
 func RemoveWithArkade(configFilePath string, toolsToRemove []string) error {
 	for _, tool := range toolsToRemove {
 		cfg, err := config.ReadConfig(configFilePath)
@@ -115,16 +114,15 @@ func RemoveWithArkade(configFilePath string, toolsToRemove []string) error {
 			return err
 		}
 
-		fmt.Printf("Marked %s for removal.\n", tool)
+		fmt.Printf("Marked %s for removal from configuration.\n", tool)
 	}
-
-	uninstallExtraneousTools(configFilePath)
 	return nil
 }
 
-// uninstallExtraneousTools identifies and removes tools that are present in the arkade directory
+// SyncFilesSystemWithConfig identifies and removes tools that are present in the arkade directory
 // but not in the configuration file.
-func uninstallExtraneousTools(configFilePath string) int {
+func SyncFileSystemWithConfig(configFilePath string) int {
+
 	cfg, err := config.ReadConfig(configFilePath)
 	if err != nil {
 		fmt.Printf("Error reading config: %s\n", err)
@@ -164,6 +162,24 @@ func uninstallExtraneousTools(configFilePath string) int {
 	}
 
 	return removedTools
+}
+
+func RemoveToolsFromFS(toolsToRemove []string) error {
+	binDir, err := GetBinDir()
+	if err != nil {
+		return err
+	}
+
+	for _, tool := range toolsToRemove {
+		toolPath := filepath.Join(binDir, tool)
+		err = os.Remove(toolPath)
+		if err != nil {
+			fmt.Printf("Failed to remove tool %s from file system: %s\n", tool, err)
+			// Deciding to just print the error rather than halting the entire process.
+			// If you want to stop, you can return the error here.
+		}
+	}
+	return nil
 }
 
 // GetSyncState prints the state of tools synchronization. It checks which tools are installed but not
