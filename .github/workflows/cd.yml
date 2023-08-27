@@ -2,21 +2,28 @@
 name: Release CD
 
 on:
-    workflow_run:
-      workflows: ["Go Build and Test CI"]
-      types:
-        - completed
+  push:
+    branches:
+      - main
+      - develop
+    tags:
+      - v*
+  pull_request:
+    branches:
+      - main
 
 jobs:
   release:
     name: Create Release and Upload Assets
     runs-on: ubuntu-latest
+    if: "github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/develop' && contains(github.event.head_commit.message, '[FORCE RELEASE]')) || starts_with(github.ref, 'refs/tags/v')"
     steps:
-    - name: Debug step
-      run: echo "Release CD workflow started"
-
     - name: Checkout code
       uses: actions/checkout@v2
+
+    - name: Extract version
+      id: get_version
+      run: echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
 
     - name: Download all built artifacts
       uses: actions/download-artifact@v2
@@ -35,9 +42,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_PAT }}
       with:
-          tag_name: ${{ github.event.workflow_run.head_commit.ref }}
-          release_name: Release ${{ github.event.workflow_run.head_commit.ref }}
-          body: New release for ${{ github.event.workflow_run.head_commit.ref }}
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ steps.get_version.outputs.version }}
+          body: New release for ${{ steps.get_version.outputs.version }}
           token: ${{ secrets.MY_PAT }}
           draft: false
           prerelease: false
