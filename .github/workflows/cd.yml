@@ -16,7 +16,7 @@ jobs:
   release:
     name: Create Release and Upload Assets
     runs-on: ubuntu-latest
-    if: "github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/develop' && contains(github.event.head_commit.message, '[FORCE RELEASE]')) || starts_with(github.ref, 'refs/tags/v')"
+    if: "github.ref == 'refs/heads/main' || (github.ref == 'refs/heads/develop' && contains(github.event.head_commit.message, '[FORCE RELEASE]')) || contains(github.ref, 'refs/tags/v')"
     steps:
     - name: Checkout code
       uses: actions/checkout@v2
