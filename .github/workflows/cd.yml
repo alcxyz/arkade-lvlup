@@ -21,9 +21,9 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
-    - name: Extract version
-      id: get_version
-      run: echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
+    - name: Extract branch or tag name
+      id: ref_name
+      run: echo "::set-output name=branch_or_tag::$(echo ${GITHUB_REF#refs/*/})"
 
     - name: Download all built artifacts
       uses: actions/download-artifact@v2
@@ -42,9 +42,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_PAT }}
       with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ steps.get_version.outputs.version }}
-          body: New release for ${{ steps.get_version.outputs.version }}
+          tag_name: ${{ steps.ref_name.outputs.branch_or_tag }}
+          release_name: Release ${{ steps.ref_name.outputs.branch_or_tag }}
+          body: New release for ${{ steps.ref_name.outputs.branch_or_tag }}
           token: ${{ secrets.MY_PAT }}
           draft: false
           prerelease: false
