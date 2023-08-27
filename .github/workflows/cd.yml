@@ -9,10 +9,16 @@ on:
 
 jobs:
   release:
-    if: "startsWith(github.ref, 'refs/tags/') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
     name: Create Release and Upload Assets
     runs-on: ubuntu-latest
     steps:
+    - name: Check CI success
+      run: |
+        if [[ "${{ github.event.workflow_run.conclusion }}" != "success" ]]; then
+          echo "CI did not complete successfully. Aborting CD."
+          exit 1
+        fi
+
     - name: Checkout code
       uses: actions/checkout@v2
 
@@ -33,9 +39,9 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_PAT }}
       with:
-          tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
-          body: New release for ${{ github.ref_name }}
+          tag_name: ${{ github.event.workflow_run.head_commit.ref }}
+          release_name: Release ${{ github.event.workflow_run.head_commit.ref }}
+          body: New release for ${{ github.event.workflow_run.head_commit.ref }}
           token: ${{ secrets.MY_PAT }}
           draft: false
           prerelease: false
@@ -52,3 +58,6 @@ jobs:
               "${{ steps.create_release.outputs.upload_url }}?name=$(basename $file)"
           fi
         done
+
+    # Check if it should release, based on the tag or [FORCE RELEASE] message.
+    if: "startsWith(github.event.workflow_run.head_commit.ref, 'refs/tags/') || contains(github.event.workflow_run.head_commit.message, '[FORCE RELEASE]')"

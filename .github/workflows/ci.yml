@@ -58,3 +58,7 @@ jobs:
     - name: Rename Apple Silicon binary
       if: runner.os == 'macOS' && matrix.goarch == 'arm64'
       run: mv arkade-lvlup-macos-latest-arm64 arkade-lvlup-macos-latest-applesilicon
+
+    - name: Set commit message
+      id: commit
+      run: echo "::set-output name=message::$(git log --format=%B -n 1 ${{ github.event.after }})"
