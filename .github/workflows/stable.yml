@@ -8,7 +8,7 @@ on:
     branches:
       - main
 
-      
+
 # ----------- CI SECTION -----------
 
 jobs:
@@ -46,14 +46,14 @@ jobs:
       run: go test ./...
 
     - name: Build binary
-      run: go build -o arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }} .
-
+      run: go build -o arkade-lvlup-${{ steps.ref_name.outputs.branch_or_tag }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }} .
+    
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
         name: arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}
-        path: ./arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}
-
+        path: ./arkade-lvlup-${{ steps.ref_name.outputs.branch_or_tag }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}
+    
     - name: Rename Apple Silicon binary
       if: runner.os == 'macOS' && matrix.goarch == 'arm64'
       run: mv arkade-lvlup-macos-latest-arm64 arkade-lvlup-macos-latest-applesilicon
@@ -91,12 +91,11 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_PAT }}
       with:
-          tag_name: ${{ steps.ref_name.outputs.branch_or_tag }}
-          release_name: Release ${{ steps.ref_name.outputs.branch_or_tag }}
-          body: New release for ${{ steps.ref_name.outputs.branch_or_tag }}
-          token: ${{ secrets.MY_PAT }}
-          draft: false
-          prerelease: false
+        tag_name: ${{ steps.ref_name.outputs.branch_or_tag }}-${{ github.run_id }}
+        release_name: Release ${{ steps.ref_name.outputs.branch_or_tag }}-${{ github.run_id }}
+        body: New release for ${{ steps.ref_name.outputs.branch_or_tag }}   
+        draft: false
+        prerelease: false
     
     - name: Upload Release Assets
       run: |
@@ -110,3 +109,17 @@ jobs:
               "${{ steps.create_release.outputs.upload_url }}?name=$(basename $file)"
           fi
         done
+
+    - name: Move "latest" tag
+      run: |
+        # Delete the "latest" tag if it exists
+        curl -X DELETE \
+        -H "Authorization: token ${{ secrets.MY_PAT }}" \
+        https://api.github.com/repos/${{ github.repository }}/git/refs/tags/latest
+
+        # Create a new "latest" tag pointing to the current commit
+        curl -X POST \
+        -H "Authorization: token ${{ secrets.MY_PAT }}" \
+        -H "Content-Type: application/json" \
+        -d '{"ref":"refs/tags/latest", "sha":"${{ github.sha }}"}' \
+        https://api.github.com/repos/${{ github.repository }}/git/refs
