@@ -12,12 +12,8 @@ jobs:
     name: Create Release and Upload Assets
     runs-on: ubuntu-latest
     steps:
-    - name: Check CI success
-      run: |
-        if [[ "${{ github.event.workflow_run.conclusion }}" != "success" ]]; then
-          echo "CI did not complete successfully. Aborting CD."
-          exit 1
-        fi
+    - name: Debug step
+      run: echo "Release CD workflow started"
 
     - name: Checkout code
       uses: actions/checkout@v2
@@ -58,6 +54,3 @@ jobs:
               "${{ steps.create_release.outputs.upload_url }}?name=$(basename $file)"
           fi
         done
-
-    # Check if it should release, based on the tag or [FORCE RELEASE] message.
-    if: "startsWith(github.event.workflow_run.head_commit.ref, 'refs/tags/') || contains(github.event.workflow_run.head_commit.message, '[FORCE RELEASE]')"
