@@ -1,0 +1,87 @@
+name: New Release (Latest > Stable)
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# ----------- CI SECTION -----------
+
+jobs:
+  build:
+    name: Build & Test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        goarch: [amd64, arm64]
+    runs-on: ${{ matrix.os }}
+
+    env:
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.21
+
+    - name: Cache dependencies
+      uses: actions/cache@v2
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Test
+      run: go test ./...
+
+    - name: Build binary
+      run: go build -o arkade-lvlup-${{ github.sha }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }} .
+    
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}
+        path: ./arkade-lvlup-${{ github.sha }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}
+
+# ----------- CD SECTION -----------
+
+  release:
+    name: Create Release and Upload Assets
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Ensure jq is available
+      run: |
+        if ! command -v jq &> /dev/null
+        then
+          sudo apt-get update && sudo apt-get install -y jq
+        fi
+    
+    - name: Download all built artifacts
+      uses: actions/download-artifact@v2
+      with:
+        path: ./artifacts
+    
+    - name: Create Release
+      run: |
+        gh release create ${{ github.sha }} ./artifacts/* --title "Release ${{ github.sha }}" --notes "New release for ${{ github.sha }}" --repo ${{ github.repository }}
+
+    - name: Update "latest" and "stable" tags
+      run: |
+        # Delete old stable and rename the current latest to stable
+        gh api repos/${{ github.repository }}/git/refs/tags/stable -X DELETE
+        gh api repos/${{ github.repository }}/git/refs/tags/latest -X DELETE
+        
+        # Create the latest tag
+        gh api repos/${{ github.repository }}/git/refs -X POST -f ref=refs/tags/latest -f sha=${{ github.sha }}

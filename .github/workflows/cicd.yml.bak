@@ -1,3 +1,4 @@
+#cicd.yml - to be deleted..
 name: arkade-lvlup CI/CD - Build - Test - Release
 
 on:
@@ -48,17 +49,24 @@ jobs:
       run: go test ./...
 
     - name: Build binary
-      run: go build -o arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }} .
+      run: go build -o arkade-lvlup-${{ runner.os }}-${{ steps.set_tag.outputs.tag }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }} .
+
+    - name: Rename Apple Silicon binary
+      if: runner.os == 'macOS' && matrix.goarch == 'arm64'
+      run: mv arkade-lvlup-macos-nightly-arm64 arkade-lvlup-macos-nightly-applesilicon
+  
+    - name: Set tag or default to nightly
+      id: set_tag
+      run: |
+        ref=${GITHUB_REF#refs/*/}
+        echo "::set-output name=tag::${ref:0:10}" # Limit tag length to 10, adjust as necessary
+      shell: bash
 
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
         name: arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}
         path: ./arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}
-
-    - name: Rename Apple Silicon binary
-      if: runner.os == 'macOS' && matrix.goarch == 'arm64'
-      run: mv arkade-lvlup-macos-latest-arm64 arkade-lvlup-macos-latest-applesilicon
 
     - name: Set commit message
       id: commit

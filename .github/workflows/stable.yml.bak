@@ -54,10 +54,6 @@ jobs:
         name: arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}
         path: ./arkade-lvlup-${{ steps.ref_name.outputs.branch_or_tag }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}
     
-    - name: Rename Apple Silicon binary
-      if: runner.os == 'macOS' && matrix.goarch == 'arm64'
-      run: mv arkade-lvlup-macos-latest-arm64 arkade-lvlup-macos-latest-applesilicon
-
     - name: Set commit message
       id: commit
       run: echo "::set-output name=message::$(git log --format=%B -n 1 ${{ github.event.after }})"
@@ -78,12 +74,6 @@ jobs:
       uses: actions/download-artifact@v2
       with:
         path: ./artifacts
-    
-    - name: Rename Apple Silicon binary
-      run: |
-        if [ -f "./artifacts/arkade-lvlup-macos-latest-arm64" ]; then
-            mv ./artifacts/arkade-lvlup-macos-latest-arm64 ./artifacts/arkade-lvlup-macos-latest-applesilicon
-        fi
     
     - name: Create Release
       id: create_release
@@ -110,16 +100,17 @@ jobs:
           fi
         done
 
-    - name: Move "latest" tag
+    - name: Create or Update "latest" tag
       run: |
-        # Delete the "latest" tag if it exists
+        # Update the "latest" tag
         curl -X DELETE \
         -H "Authorization: token ${{ secrets.MY_PAT }}" \
         https://api.github.com/repos/${{ github.repository }}/git/refs/tags/latest
-
-        # Create a new "latest" tag pointing to the current commit
+    
         curl -X POST \
         -H "Authorization: token ${{ secrets.MY_PAT }}" \
         -H "Content-Type: application/json" \
         -d '{"ref":"refs/tags/latest", "sha":"${{ github.sha }}"}' \
         https://api.github.com/repos/${{ github.repository }}/git/refs
+      
+            
