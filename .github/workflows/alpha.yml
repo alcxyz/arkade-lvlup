@@ -1,21 +1,47 @@
-name: Beta Release
+name: Alpha Build
 
 env:
   REPO_NAME: arkade-lvlup
   GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-  RELEASE_NAME: Beta Release
-  RELEASE_TYPE: beta
+  RELEASE_NAME: Alpha Release
+  RELEASE_TYPE: alpha
 
 on:
   push:
-    branches:
+    branches-ignore:
+      - main
+      - develop
+  pull_request:
+    branches-ignore:
+      - main
       - develop
 
-# ----------- CI SECTION -----------
+# ----------- MATRIX DETERMINATION SECTION -----------      
 
 jobs:
+  determine-build-matrix:
+    name: Determine Build Matrix
+    if: "contains(github.event.head_commit.message, '[FORCE BUILD]') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ env.MATRIX_JSON }}    
+    steps:
+      - id: set-matrix
+        run: |
+          case "${{ github.event.head_commit.message }}" in
+          *"[MAC]"*) MATRIX="{\"os\":[\"macos-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          *"[WIN]"*) MATRIX="{\"os\":[\"windows-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          *"[ALL]"*) MATRIX="{\"os\":[\"ubuntu-latest\",\"macos-latest\",\"windows-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          *) MATRIX="{\"os\":[\"ubuntu-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          esac
+          echo "MATRIX_JSON=$MATRIX" >> $GITHUB_ENV
+    
+
+# ----------- CI SECTION -----------
+ 
   setup-info:
     name: Prelimenary steps
+    if: "contains(github.event.head_commit.message, '[FORCE BUILD]') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
     runs-on: ubuntu-latest
     outputs:
       branch_name: ${{ env.BRANCH_NAME }}
@@ -62,16 +88,15 @@ jobs:
 
   build:
     name: Build & Test
-    needs: [setup-info]
+    needs: [setup-info, determine-build-matrix]
+    if: "contains(github.event.head_commit.message, '[FORCE BUILD]') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        goarch: [amd64, arm64]
-      
+      matrix: ${{fromJson(needs.determine-build-matrix.outputs.matrix)}}
+   
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v3     
       
       - name: Setup Go
         uses: actions/setup-go@v4
@@ -111,6 +136,7 @@ jobs:
   prune-releases:
     name: Prune Releases and Tags
     needs: [setup-info]
+    if: "contains(github.event.head_commit.message, '[FORCE RELEASE]')"
     runs-on: ubuntu-latest
 
     steps:
@@ -167,8 +193,8 @@ jobs:
 
   release:
     name: Create Release and Upload Assets
-    needs: [build, prune-releases]
-    if: github.event_name == 'push'
+    if: "contains(github.event.head_commit.message, '[FORCE RELEASE]')"
+    needs: [setup-info, build, prune-releases]
     runs-on: ubuntu-latest
 
     steps:
@@ -190,7 +216,7 @@ jobs:
           gh release create ${{ env.RELEASE_TYPE }} \
           --title "${{ env.RELEASE_NAME }} ${{ needs.setup-info.outputs.branch_name }}" \
           --notes "${{ env.RELEASE_NAME }} for ${{ needs.setup-info.outputs.branch_name }}" \
-          --draft
+          --draft    
       
       - name: Upload Files to Release
         run: |
