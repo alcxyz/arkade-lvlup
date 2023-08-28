@@ -1,102 +1,204 @@
 name: Beta Release
 
+env:
+  REPO_NAME: arkade-lvlup
+  GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+  RELEASE_NAME: Beta Release
+  RELEASE_TYPE: beta
+
 on:
   push:
-    branches:
-      - develop
-  pull_request:
     branches:
       - develop
 
 # ----------- CI SECTION -----------
 
 jobs:
+  setup-info:
+    name: Prelimenary steps
+    runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ env.BRANCH_NAME }}
+      tag_name: ${{ env.TAG_NAME }}
+    steps:
+      
+      - name: Extract type and name from GITHUB_REF
+        id: extract-ref
+        shell: bash
+        run: |
+          # Extract the type (branch or tag) and its name from the GITHUB_REF variable
+          REF_TYPE=$(echo ${GITHUB_REF#refs/} | cut -d'/' -f1)
+          REF_NAME=$(echo ${GITHUB_REF#refs/*/})
+          if [[ -z "$REF_TYPE" || -z "$REF_NAME" ]]; then
+            echo "Error: Failed to extract REF_TYPE or REF_NAME from GITHUB_REF"
+            exit 1
+          fi
+          echo "REF_TYPE=$REF_TYPE" >> $GITHUB_ENV
+          echo "REF_NAME=$REF_NAME" >> $GITHUB_ENV
+          
+      - name: Set branch name
+        id: set-branch-name
+        shell: bash
+        run: |
+          if [[ "${{ env.REF_TYPE }}" == "heads" ]]; then
+            if [[ -z "${{ env.REF_NAME }}" ]]; then
+              echo "Error: REF_NAME for branch is empty."
+              exit 1
+            fi
+            echo "BRANCH_NAME=${{ env.REF_NAME }}" >> $GITHUB_ENV
+          fi
+          
+      - name: Set tag name
+        id: set-tag-name
+        shell: bash
+        run: |
+          if [[ "${{ env.REF_TYPE }}" == "tags" ]]; then
+            if [[ -z "${{ env.REF_NAME }}" ]]; then
+              echo "Error: REF_NAME for tag is empty."
+              exit 1
+            fi
+            echo "TAG_NAME=${{ env.REF_NAME }}" >> $GITHUB_ENV
+          fi
+
   build:
     name: Build & Test
+    needs: [setup-info]
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         goarch: [amd64, arm64]
-    runs-on: ${{ matrix.os }}
-    env:
-      GOARCH: ${{ matrix.goarch }}
+      
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.21
 
-    - name: Setup Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: 1.21
+#      Cache was causing errors, turned off until further evaluation
+#      - name: Cache dependencies
+#        uses: actions/cache@v3
+#        with:
+#          path: ~/go/pkg/mod
+#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+#          restore-keys: |
+#            ${{ runner.os }}-go-
+#        env:
+#          GO111MODULE: on
+        
+      - name: Download dependencies
+        run: go mod download
+    
+      - name: Test
+        run: go test ./...
+    
+      - name: Build binary
+        run: |
+          go build -o ${{ env.REPO_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}-${{ env.RELEASE_TYPE }} .
 
-    - name: Cache dependencies
-      uses: actions/cache@v2
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ env.REPO_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}-${{ env.RELEASE_TYPE }}
+          path: ./${{ env.REPO_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}-${{ env.RELEASE_TYPE }}
+            
 
-    - name: Download dependencies
-      run: go mod download
+# ----------- CD SECTION -----------         
 
-    - name: Test
-      run: go test ./...
+  prune-releases:
+    name: Prune Releases and Tags
+    needs: [setup-info]
+    runs-on: ubuntu-latest
 
-    - name: Extract branch or tag name
-      id: ref_name
-      run: echo "::set-output name=branch_or_tag::$(echo ${GITHUB_REF#refs/*/})"
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16'
 
-    - name: Get current timestamp
-      id: get-timestamp
-      run: echo "::set-output name=timestamp::$(date +'%Y%m%d-%H%M%S')"
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.MY_PAT }}
+          
+      - name: Delete old release
+        run: |
+          # Check if a release exists and delete it
+          if gh release view ${{ env.RELEASE_TYPE }} > /dev/null 2>&1; then
+            gh release delete ${{ env.RELEASE_TYPE }} -y
+            echo "Successfully deleted the ${{ env.RELEASE_TYPE }} release."
+          else
+            echo "No ${{ env.RELEASE_TYPE }} release found."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+  
+      - name: Delete old ${{ env.RELEASE_TYPE }} tag locally and remotely
+        run: |
+          # Check if local tag exists and delete
+          if git tag | grep -q '^${{ env.RELEASE_TYPE }}$'; then
+            git tag -d ${{ env.RELEASE_TYPE }} 
+            echo "Successfully deleted the ${{ env.RELEASE_TYPE }} tag locally."
+          else
+            echo "No local ${{ env.RELEASE_TYPE }} tag found."
+          fi
+          
+          # Debug: Print remote tags
+          echo "Listing remote tags:"
+          git ls-remote --tags origin
+      
+          # Check if remote tag exists and delete
+          if git ls-remote --tags origin | grep -q 'refs/tags/${{ env.RELEASE_TYPE }}'; then
+            git push origin :refs/tags/${{ env.RELEASE_TYPE }} 
+            echo "Successfully deleted the ${{ env.RELEASE_TYPE }} tag remotely."
+          else
+            echo "No remote ${{ env.RELEASE_TYPE }} tag found."
+          fi
 
-    - name: Build binary
-      run: go build -o arkade-lvlup-${{ steps.ref_name.outputs.branch_or_tag }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }} .
-
-    - name: Archive production artifacts
-      uses: actions/upload-artifact@v2
-      with:
-        name: arkade-lvlup-${{ matrix.os }}-${{ matrix.goarch }}
-        path: ./arkade-lvlup-${{ steps.ref_name.outputs.branch_or_tag }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}
-
-    - name: Set commit message
-      id: commit
-      run: echo "::set-output name=message::$(git log --format=%B -n 1 ${{ github.event.after }})"
-
-# ----------- CD SECTION -----------
+      - name: Create new tag
+        run: |
+          git tag ${{ env.RELEASE_TYPE }}
+          git push origin ${{ env.RELEASE_TYPE }}
+          echo "Successfully created the new ${{ env.RELEASE_TYPE }} tag."
+  
 
   release:
     name: Create Release and Upload Assets
-    needs: build
+    needs: [build, prune-releases]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-      with:
-        token: ${{ secrets.MY_PAT }}
-  
-    - name: Prune old beta release if it exists
-      run: |
-        if gh release view beta > /dev/null 2>&1; then
-          gh release delete beta -y
-        fi
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.MY_PAT }}
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: ./artifacts
+
+      - name: List Artifacts Directory
+        run: |
+          ls -R ./artifacts/
+
+      - name: Create Release
+        run: |
+          gh release create ${{ env.RELEASE_TYPE }} \
+          --title "${{ env.RELEASE_NAME }} ${{ needs.setup-info.outputs.branch_name }}" \
+          --notes "${{ env.RELEASE_NAME }} for ${{ needs.setup-info.outputs.branch_name }}" \
+          --draft
       
-    - name: Download all built artifacts
-      uses: actions/download-artifact@v2
-      with:
-        path: ./artifacts
-  
-    - name: Create and Upload New Beta Release
-      run: |
-        gh release create \
-            beta \
-            ./artifacts/*/* \
-            --title "Beta Release ${{ steps.ref_name.outputs.branch_or_tag }}" \
-            --notes "Beta release for ${{ steps.ref_name.outputs.branch_or_tag }}" \
-            --prerelease
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+      - name: Upload Files to Release
+        run: |
+          TAG="${{ env.RELEASE_TYPE }}"
+          FILES=$(ls ./artifacts/*/*)
+          for FILE in $FILES; do
+            gh release upload \
+              $TAG \
+              $FILE
+          done
+        
