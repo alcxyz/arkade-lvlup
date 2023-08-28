@@ -1,8 +1,10 @@
 name: Alpha Build
 
 env:
-  RELEASE_TYPE: alpha
+  REPO_NAME: arkade-lvlup
   GITHUB_TOKEN: ${{ secrets.MY_PAT }}
+  RELEASE_NAME: Alpha Release
+  RELEASE_TYPE: alpha
 
 on:
   push:
@@ -18,55 +20,83 @@ on:
 
 jobs:
   determine-build-matrix:
+    name: Determine Build Matrix
+    if: "contains(github.event.head_commit.message, '[FORCE BUILD]') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ env.MATRIX_JSON }}    
     steps:
       - id: set-matrix
         run: |
-          MATRIX="{\"os\":[\"ubuntu-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" # default to Linux
-          if [[ "${{ github.event.head_commit.message }}" == *"[MAC]"* ]]; then
-            MATRIX="{\"os\":[\"macos-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}"
-          elif [[ "${{ github.event.head_commit.message }}" == *"[WIN]"* ]]; then
-            MATRIX="{\"os\":[\"windows-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" 
-          elif [[ "${{ github.event.head_commit.message }}" == *"[ALL]"* ]]; then
-            MATRIX="{\"os\":[\"ubuntu-latest\",\"macos-latest\",\"windows-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" # Builds for all platforms
-          fi
+          case "${{ github.event.head_commit.message }}" in
+          *"[MAC]"*) MATRIX="{\"os\":[\"macos-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          *"[WIN]"*) MATRIX="{\"os\":[\"windows-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          *"[ALL]"*) MATRIX="{\"os\":[\"ubuntu-latest\",\"macos-latest\",\"windows-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          *) MATRIX="{\"os\":[\"ubuntu-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
+          esac
           echo "MATRIX_JSON=$MATRIX" >> $GITHUB_ENV
+    
 
 # ----------- CI SECTION -----------
-          
-  build:
-    needs: determine-build-matrix
+ 
+  setup-info:
+    name: Prelimenary steps
     if: "contains(github.event.head_commit.message, '[FORCE BUILD]') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix: ${{fromJson(needs.determine-build-matrix.outputs.matrix)}}
+    runs-on: ubuntu-latest
     outputs:
       branch_name: ${{ env.BRANCH_NAME }}
       tag_name: ${{ env.TAG_NAME }}
-      
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        
-      - name: Extract branch, tag, and repo names
-        id: extract-names
+      
+      - name: Extract type and name from GITHUB_REF
+        id: extract-ref
         shell: bash
         run: |
           # Extract the type (branch or tag) and its name from the GITHUB_REF variable
           REF_TYPE=$(echo ${GITHUB_REF#refs/} | cut -d'/' -f1)
           REF_NAME=$(echo ${GITHUB_REF#refs/*/})
-      
-          if [[ "$REF_TYPE" == "heads" ]]; then
-            echo "BRANCH_NAME=$REF_NAME" >> $GITHUB_ENV
-          elif [[ "$REF_TYPE" == "tags" ]]; then
-            echo "TAG_NAME=$REF_NAME" >> $GITHUB_ENV
+          if [[ -z "$REF_TYPE" || -z "$REF_NAME" ]]; then
+            echo "Error: Failed to extract REF_TYPE or REF_NAME from GITHUB_REF"
+            exit 1
           fi
-      
-          # Extract the repository name from the GITHUB_REPOSITORY variable
-          REPOSITORY_NAME=${GITHUB_REPOSITORY##*/}
-          echo "REPOSITORY_NAME=$REPOSITORY_NAME" >> $GITHUB_ENV
+          echo "REF_TYPE=$REF_TYPE" >> $GITHUB_ENV
+          echo "REF_NAME=$REF_NAME" >> $GITHUB_ENV
+          
+      - name: Set branch name
+        id: set-branch-name
+        shell: bash
+        run: |
+          if [[ "${{ env.REF_TYPE }}" == "heads" ]]; then
+            if [[ -z "${{ env.REF_NAME }}" ]]; then
+              echo "Error: REF_NAME for branch is empty."
+              exit 1
+            fi
+            echo "BRANCH_NAME=${{ env.REF_NAME }}" >> $GITHUB_ENV
+          fi
+          
+      - name: Set tag name
+        id: set-tag-name
+        shell: bash
+        run: |
+          if [[ "${{ env.REF_TYPE }}" == "tags" ]]; then
+            if [[ -z "${{ env.REF_NAME }}" ]]; then
+              echo "Error: REF_NAME for tag is empty."
+              exit 1
+            fi
+            echo "TAG_NAME=${{ env.REF_NAME }}" >> $GITHUB_ENV
+          fi
+
+  build:
+    name: Build & Test
+    needs: [setup-info, determine-build-matrix]
+    if: "contains(github.event.head_commit.message, '[FORCE BUILD]') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix: ${{fromJson(needs.determine-build-matrix.outputs.matrix)}}
+   
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3     
       
       - name: Setup Go
         uses: actions/setup-go@v4
@@ -92,18 +122,20 @@ jobs:
     
       - name: Build binary
         run: |
-          go build -o ${{ env.REPOSITORY_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}-${{ env.RELEASE_TYPE }} .
+          go build -o ${{ env.REPO_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}-${{ env.RELEASE_TYPE }} .
 
       - name: Archive artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: ${{ env.REPOSITORY_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}-${{ env.RELEASE_TYPE }}
-          path: ./${{ env.REPOSITORY_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}-${{ env.RELEASE_TYPE }}
+          name: ${{ env.REPO_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}-${{ env.RELEASE_TYPE }}
+          path: ./${{ env.REPO_NAME }}-${{ matrix.os }}-${{ matrix.goarch }}${{ runner.os == 'Windows' && '.exe' || '' }}-${{ env.RELEASE_TYPE }}
             
 
 # ----------- CD SECTION -----------         
 
   prune-releases:
+    name: Prune Releases and Tags
+    needs: [setup-info]
     if: "contains(github.event.head_commit.message, '[FORCE RELEASE]')"
     runs-on: ubuntu-latest
 
@@ -130,14 +162,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.MY_PAT }}
   
-      - name: Delete old alpha tag locally and remotely
+      - name: Delete old ${{ env.RELEASE_TYPE }} tag locally and remotely
         run: |
           # Check if local tag exists and delete
-          if git tag | grep -q '^alpha$'; then
-            git tag -d alpha 
-            echo "Successfully deleted the alpha tag locally."
+          if git tag | grep -q '^${{ env.RELEASE_TYPE }}$'; then
+            git tag -d ${{ env.RELEASE_TYPE }} 
+            echo "Successfully deleted the ${{ env.RELEASE_TYPE }} tag locally."
           else
-            echo "No local alpha tag found."
+            echo "No local ${{ env.RELEASE_TYPE }} tag found."
           fi
           
           # Debug: Print remote tags
@@ -145,11 +177,11 @@ jobs:
           git ls-remote --tags origin
       
           # Check if remote tag exists and delete
-          if git ls-remote --tags origin | grep -q 'refs/tags/alpha'; then
-            git push origin :refs/tags/alpha 
-            echo "Successfully deleted the alpha tag remotely."
+          if git ls-remote --tags origin | grep -q 'refs/tags/${{ env.RELEASE_TYPE }}'; then
+            git push origin :refs/tags/${{ env.RELEASE_TYPE }} 
+            echo "Successfully deleted the ${{ env.RELEASE_TYPE }} tag remotely."
           else
-            echo "No remote alpha tag found."
+            echo "No remote ${{ env.RELEASE_TYPE }} tag found."
           fi
 
       - name: Create new tag
@@ -157,13 +189,12 @@ jobs:
           git tag ${{ env.RELEASE_TYPE }}
           git push origin ${{ env.RELEASE_TYPE }}
           echo "Successfully created the new ${{ env.RELEASE_TYPE }} tag."
-        env:
-          GITHUB_TOKEN: ${{ secrets.MY_PAT }}
   
 
   release:
+    name: Create Release and Upload Assets
     if: "contains(github.event.head_commit.message, '[FORCE RELEASE]')"
-    needs: [build, prune-releases]
+    needs: [setup-info, build, prune-releases]
     runs-on: ubuntu-latest
 
     steps:
@@ -182,14 +213,14 @@ jobs:
 
       - name: Create Release
         run: |
-          gh release create alpha \
-            --title "Alpha Release feature/improve-cicd" \
-            --notes "Alpha release for feature/improve-cicd" \
-            --draft
+          gh release create ${{ env.RELEASE_TYPE }} \
+          --title "${{ env.RELEASE_NAME }} ${{ needs.setup-info.outputs.branch_name }}" \
+          --notes "${{ env.RELEASE_NAME }} for ${{ needs.setup-info.outputs.branch_name }}" \
+          --draft    
       
       - name: Upload Files to Release
         run: |
-          TAG="alpha"
+          TAG="${{ env.RELEASE_TYPE }}"
           FILES=$(ls ./artifacts/*/*)
           for FILE in $FILES; do
             gh release upload \

@@ -1,4 +1,4 @@
-#cicd.yml - to be deleted..
+#cicd.yml - to be deleted...
 name: arkade-lvlup CI/CD - Build - Test - Release
 
 on:
