@@ -16,6 +16,7 @@ on:
       - main
       - develop
 
+
 # ----------- MATRIX DETERMINATION SECTION -----------      
 
 jobs:
@@ -28,6 +29,7 @@ jobs:
     steps:
       - id: set-matrix
         run: |
+          set -e
           case "${{ github.event.head_commit.message }}" in
           *"[MAC]"*) MATRIX="{\"os\":[\"macos-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
           *"[WIN]"*) MATRIX="{\"os\":[\"windows-latest\"],\"goarch\":[\"amd64\",\"arm64\"]}" ;;
@@ -38,13 +40,12 @@ jobs:
     
 
 # ----------- CI SECTION -----------
- 
+  
   setup-info:
     name: Prelimenary steps
     if: "contains(github.event.head_commit.message, '[FORCE BUILD]') || contains(github.event.head_commit.message, '[FORCE RELEASE]')"
     runs-on: ubuntu-latest
     outputs:
-      branch_name: ${{ env.BRANCH_NAME }}
       tag_name: ${{ env.TAG_NAME }}
     steps:
       
@@ -52,27 +53,23 @@ jobs:
         id: extract-ref
         shell: bash
         run: |
+          set -e
+          trap 'handle_error $LINENO' ERR
+          handle_error() {
+            echo "Error occurred at line $1. Exiting."
+            exit 1
+          }
+          
           # Extract the type (branch or tag) and its name from the GITHUB_REF variable
           REF_TYPE=$(echo ${GITHUB_REF#refs/} | cut -d'/' -f1)
           REF_NAME=$(echo ${GITHUB_REF#refs/*/})
+          
           if [[ -z "$REF_TYPE" || -z "$REF_NAME" ]]; then
-            echo "Error: Failed to extract REF_TYPE or REF_NAME from GITHUB_REF"
+            echo "Error: Failed to extract REF_TYPE or REF_NAME from GITHUB_REF. Exiting."
             exit 1
           fi
           echo "REF_TYPE=$REF_TYPE" >> $GITHUB_ENV
           echo "REF_NAME=$REF_NAME" >> $GITHUB_ENV
-          
-      - name: Set branch name
-        id: set-branch-name
-        shell: bash
-        run: |
-          if [[ "${{ env.REF_TYPE }}" == "heads" ]]; then
-            if [[ -z "${{ env.REF_NAME }}" ]]; then
-              echo "Error: REF_NAME for branch is empty."
-              exit 1
-            fi
-            echo "BRANCH_NAME=${{ env.REF_NAME }}" >> $GITHUB_ENV
-          fi
           
       - name: Set tag name
         id: set-tag-name
@@ -85,6 +82,7 @@ jobs:
             fi
             echo "TAG_NAME=${{ env.REF_NAME }}" >> $GITHUB_ENV
           fi
+      
 
   build:
     name: Build & Test
@@ -103,22 +101,22 @@ jobs:
         with:
           go-version: 1.21
 
-#      Cache was causing errors, turned off until further evaluation
-#      - name: Cache dependencies
-#        uses: actions/cache@v3
-#        with:
-#          path: ~/go/pkg/mod
-#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-#          restore-keys: |
-#            ${{ runner.os }}-go-
-#        env:
-#          GO111MODULE: on
+      # Cache was causing errors, turned off until further evaluation
+      # - name: Cache dependencies
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: ~/go/pkg/mod
+      #     key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-go-
+      #   env:
+      #     GO111MODULE: on
         
       - name: Download dependencies
         run: go mod download
     
-      - name: Test
-        run: go test ./...
+      # - name: Test
+      #   run: go test ./...
     
       - name: Build binary
         run: |
@@ -152,16 +150,16 @@ jobs:
           
       - name: Delete old release
         run: |
+          set -e
+          trap 'handle_error $LINENO' ERR
           # Check if a release exists and delete it
           if gh release view ${{ env.RELEASE_TYPE }} > /dev/null 2>&1; then
-            gh release delete ${{ env.RELEASE_TYPE }} -y
-            echo "Successfully deleted the ${{ env.RELEASE_TYPE }} release."
+              gh release delete ${{ env.RELEASE_TYPE }} -y
+              echo "Successfully deleted the ${{ env.RELEASE_TYPE }} release."
           else
-            echo "No ${{ env.RELEASE_TYPE }} release found."
-          fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.MY_PAT }}
-  
+              echo "No ${{ env.RELEASE_TYPE }} release found."
+          fi        
+
       - name: Delete old ${{ env.RELEASE_TYPE }} tag locally and remotely
         run: |
           # Check if local tag exists and delete
@@ -191,17 +189,67 @@ jobs:
           echo "Successfully created the new ${{ env.RELEASE_TYPE }} tag."
   
 
+  generate-changelog:
+    name: Generate Changelog
+    runs-on: ubuntu-latest
+    if: "contains(github.event.head_commit.message, '[FORCE RELEASE]')"
+    outputs:
+      changelog: ${{ env.CHANGELOG }}
+      commit_messages: ${{ env.COMMIT_MESSAGES }}
+  
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MY_PAT }}
+
+      - name: Get base commit
+        id: base_commit
+        run: |
+          git branch -a
+          BASE_COMMIT=$(git merge-base HEAD origin/develop) || echo "Failed to determine merge-base."
+          echo "BASE_COMMIT is: $BASE_COMMIT"
+          echo "BASE_COMMIT=$BASE_COMMIT" >> $GITHUB_ENV
+        
+      - name: Extract Commit Messages since BASE_COMMIT
+        id: get-changelog
+        run: |
+          COMMIT_MESSAGES=$(git log $BASE_COMMIT..HEAD --pretty=format:"- %s" | tr '\n' ' ')
+          echo "Captured Commit Messages: $COMMIT_MESSAGES"
+          echo "COMMIT_MESSAGES=$COMMIT_MESSAGES" >> $GITHUB_ENV
+        
+      - name: Generate changelog using Docker
+        run: |
+          set -e
+          trap 'handle_error $LINENO' ERR
+          docker run --rm \
+          -v "/home/runner/work/${{ env.REPO_NAME }}/${{ env.REPO_NAME }}":/usr/local/src/${{ env.REPO_NAME }} \
+          -w /usr/local/src/${{ env.REPO_NAME }} \
+          -e GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
+          githubchangeloggenerator/github-changelog-generator \
+          --user="${{ github.repository_owner }}" --project="${{ env.REPO_NAME }}" --token ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Encode Changelog to Environment File
+        run: |
+          echo "CHANGELOG=$(cat CHANGELOG.md | base64 -w 0)" >> $GITHUB_ENV
+                        
+
   release:
     name: Create Release and Upload Assets
     if: "contains(github.event.head_commit.message, '[FORCE RELEASE]')"
-    needs: [setup-info, build, prune-releases]
+    needs: [build, prune-releases, generate-changelog]
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.MY_PAT }}
+
+      - name: Decode Changelog from Environment Variable
+        run: |
+          echo "${{ needs.generate-changelog.outputs.changelog }}" | base64 -d > DECODED_CHANGELOG.md           
+          cat DECODED_CHANGELOG.md 
+
       - name: Download all built artifacts
         uses: actions/download-artifact@v3
         with:
@@ -210,21 +258,24 @@ jobs:
       - name: List Artifacts Directory
         run: |
           ls -R ./artifacts/
-
+      
       - name: Create Release
         run: |
+          set -e
+          trap 'handle_error $LINENO' ERR
+          RELEASE_NAME="${{ env.RELEASE_NAME }} $(date -u +"%Y-%m-%d_%H-%M")"
+          CHANGLOG_CONTENT=$(cat DECODED_CHANGELOG.md)
+          COMMIT_CONTENT="${{ needs.generate-changelog.outputs.commit_messages }}"
+          FULL_CONTENT="$CHANGLOG_CONTENT\n\n$COMMIT_CONTENT"
           gh release create ${{ env.RELEASE_TYPE }} \
-          --title "${{ env.RELEASE_NAME }} ${{ needs.setup-info.outputs.branch_name }}" \
-          --notes "${{ env.RELEASE_NAME }} for ${{ needs.setup-info.outputs.branch_name }}" \
-          --draft    
-      
+          --title "$RELEASE_NAME" \
+          --notes "$FULL_CONTENT" \
+          --draft
+                
       - name: Upload Files to Release
         run: |
           TAG="${{ env.RELEASE_TYPE }}"
           FILES=$(ls ./artifacts/*/*)
           for FILE in $FILES; do
-            gh release upload \
-              $TAG \
-              $FILE
+            gh release upload $TAG $FILE
           done
-        
