@@ -238,7 +238,7 @@ jobs:
   release:
     name: Create Release and Upload Assets
     if: "contains(github.event.head_commit.message, '[FORCE RELEASE]')"
-    needs: [build, generate-changelog]
+    needs: [build, prune-releases, generate-changelog]
     runs-on: ubuntu-latest
 
     steps:
@@ -263,7 +263,7 @@ jobs:
         run: |
           set -e
           trap 'handle_error $LINENO' ERR
-          RELEASE_NAME="Alpha Release $(date -u +"%Y-%m-%d_%H-%M")"
+          RELEASE_NAME="${{ env.RELEASE_NAME }} $(date -u +"%Y-%m-%d_%H-%M")"
           CHANGLOG_CONTENT=$(cat DECODED_CHANGELOG.md)
           COMMIT_CONTENT="${{ needs.generate-changelog.outputs.commit_messages }}"
           FULL_CONTENT="$CHANGLOG_CONTENT\n\n$COMMIT_CONTENT"
@@ -279,5 +279,3 @@ jobs:
           for FILE in $FILES; do
             gh release upload $TAG $FILE
           done
-          # Commenting out the redundant upload of DECODED_CHANGELOG.md
-          # gh release upload $TAG DECODED_CHANGELOG.md
